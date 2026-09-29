@@ -45,7 +45,7 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
         Assert.Equal(todos.Count, todos.Select(a => a.Codigo).Distinct().Count());
         Assert.All(todos, a => Assert.Equal(ProductImageService.Placeholder, a.ImagemUrl));
         Assert.Equal(
-            todos.OrderBy(a => a.FamiliaNome).ThenBy(a => a.Ordem).Select(a => a.Codigo),
+            todos.OrderBy(a => a.FamiliaNome).ThenBy(a => a.Ordem, StringComparer.Ordinal).Select(a => a.Codigo),
             todos.Select(a => a.Codigo));
     }
 

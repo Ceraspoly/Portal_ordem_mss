@@ -23,7 +23,7 @@ function buildCard(artigo) {
   img.addEventListener("error", () => { if (!img.src.endsWith(PLACEHOLDER)) img.src = PLACEHOLDER; }, { once: true });
   node.querySelector(".nome").textContent = artigo.nome;
   node.querySelector(".familia").textContent = artigo.familiaNome || artigo.familia || "Sem família";
-  node.querySelector(".ordem").textContent = artigo.ordem == null ? "" : `Ordem ${artigo.ordem}`;
+  node.querySelector(".ordem").textContent = artigo.ordem ? `Ordem ${artigo.ordem}` : "";
   node.title = artigo.codigo;
   return node;
 }

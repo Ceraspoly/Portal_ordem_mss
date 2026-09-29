@@ -1,7 +1,7 @@
 namespace PortalOrdemMss.Web;
 
 /// <summary>Um artigo tal como aparece no catálogo: só foto, nome, família e ordem.</summary>
-public sealed record Artigo(string Codigo, string Nome, string Familia, string FamiliaNome, string ImagemUrl, int? Ordem);
+public sealed record Artigo(string Codigo, string Nome, string Familia, string FamiliaNome, string ImagemUrl, string Ordem);
 
 public sealed record Familia(string Codigo, string Nome);
 

@@ -36,7 +36,7 @@ public sealed class DemoArtigoProvider(ProductImageService images) : IArtigoProv
                         || d.Nome.Contains(pesquisa.Search, StringComparison.OrdinalIgnoreCase))
             .OrderBy(d => nomes[d.Familia]).ThenBy(d => d.Ordem).ThenBy(d => d.Codigo)
             .Skip(pesquisa.Offset).Take(pesquisa.Limit)
-            .Select(d => new Artigo(d.Codigo, d.Nome, d.Familia, nomes[d.Familia], images.ResolveImageUrl(string.Empty, d.Codigo), d.Ordem))
+            .Select(d => new Artigo(d.Codigo, d.Nome, d.Familia, nomes[d.Familia], images.ResolveImageUrl(string.Empty, d.Codigo), d.Ordem.ToString("D4")))
             .ToList();
         return Task.FromResult(result);
     }

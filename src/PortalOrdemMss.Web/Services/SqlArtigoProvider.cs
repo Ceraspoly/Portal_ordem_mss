@@ -37,7 +37,8 @@ public sealed class SqlArtigoProvider(IOptionsMonitor<SqlOptions> options, Produ
                 Text(reader, iFamilia),
                 Text(reader, iFamiliaNome),
                 images.ResolveImageUrl(Text(reader, iImagem), codigo),
-                reader.IsDBNull(iOrdem) ? null : Convert.ToInt32(reader.GetValue(iOrdem))));
+                // CDU_MSS_ORDEM é texto (ex. "AB0005A5"), não número: a ordenação fica no SQL.
+                Text(reader, iOrdem)));
         }
 
         return result;
