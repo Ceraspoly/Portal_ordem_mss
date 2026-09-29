@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catálogo de artigos</title>
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+  <header class="topo">
+    <h1 id="titulo">Catálogo de artigos</h1>
+    <span id="demo-badge" class="demo-badge" hidden>Modo demonstração</span>
+    <div class="filtros">
+      <input id="pesquisa" type="search" placeholder="Pesquisar por código ou nome" autocomplete="off">
+      <select id="familia">
+        <option value="">Todas as famílias</option>
+      </select>
+    </div>
+  </header>
+
+  <main>
+    <p id="estado" class="estado" role="status"></p>
+    <div id="grelha" class="grelha"></div>
+    <button id="mais" class="mais" type="button" hidden>Carregar mais</button>
+  </main>
+
+  <template id="tpl-artigo">
+    <article class="artigo">
+      <div class="foto"><img alt="" loading="lazy" width="200" height="200"></div>
+      <h2 class="nome"></h2>
+      <p class="familia"></p>
+      <p class="ordem"></p>
+    </article>
+  </template>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

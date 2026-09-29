@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PortalOrdemMss.Web.Tests/PortalOrdemMss.Web.Tests.csproj" />
+    <Project Path="src/PortalOrdemMss.Web/PortalOrdemMss.Web.csproj" />
+  </Folder>
+</Solution>
