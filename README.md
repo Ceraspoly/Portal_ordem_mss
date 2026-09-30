@@ -1,11 +1,11 @@
 # Portal Ordem MSS — catálogo de artigos
 
-Catálogo só de leitura com o que foi pedido: **foto do artigo (200×200), nome, família e CDU_MSS_Ordem**. Feito a partir dos padrões do Portal de Encomendas Rápidas (`Ceraspoly/portal-encomendas-rapidas`), sem preços, clientes, carrinho, login nem escrita no ERP.
+Catálogo com o que foi pedido: **foto do artigo (200×200), nome, família e CDU_MSS_Ordem**. Permite arrastar artigos para mudar a ordem, gravando o CDU_MSS_ORDEM no Primavera (única escrita). Feito a partir dos padrões do Portal de Encomendas Rápidas (`Ceraspoly/portal-encomendas-rapidas`), sem preços, clientes, carrinho nem login.
 
 ## Estado
 
 - Compila com o SDK .NET 10 (`dotnet build -c Release`, 0 avisos, 0 erros).
-- 16 testes a passar (`dotnet test`), incluindo a API em modo demonstração.
+- 31 testes a passar (`dotnet test`), incluindo a API em modo demonstração e a regra de reordenação.
 - Testado em modo demonstração no browser (desktop e telemóvel): a foto fica sempre em 200×200.
 - **Ainda não testado contra o SQL Server do Primavera** nem publicado em Windows.
 
@@ -44,7 +44,26 @@ Abre `http://127.0.0.1:5090`. Arranca em modo demonstração (12 artigos fictíc
 | `Sql:ArtigosQuery` | Tem de devolver `Codigo, Nome, Familia, FamiliaNome, Imagem, Ordem`; pode usar `@Search, @LikeSearch, @Familia, @Offset, @Limit` |
 | `Sql:FamiliasQuery` | Tem de devolver `Codigo, Nome` |
 
-As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artigos anulados (`ArtigoAnulado`, `CDU_PS_ANULAR`) e ordenam por família e `CDU_MSS_ORDEM`. Só são aceites queries `SELECT` (`QuerySafety`) e os valores vão sempre como parâmetros. Usar um utilizador SQL só de leitura.
+As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artigos anulados (`ArtigoAnulado`, `CDU_PS_ANULAR`) e ordenam por família e `CDU_MSS_ORDEM`. Só são aceites queries `SELECT` (`QuerySafety`) e os valores vão sempre como parâmetros. A única escrita é a da ordem (ver abaixo).
+
+## Mudar a ordem (arrastar e largar)
+
+1. Escolher uma família (sem texto na pesquisa) e carregar em **Ordenar**.
+2. Arrastar os artigos para a nova posição. Os que mudaram ficam com contorno.
+3. **Guardar ordem**, confirmar.
+
+Regra de gravação (`Services/OrdemPlanner.cs`): **só o artigo arrastado muda**, e fica com o CDU_MSS_ORDEM do artigo que ficou antes dele mais um `a` (ex. arrastar `A55023` para depois de `B45223` grava `B45223A`; mantém maiúsculas se o valor só tiver maiúsculas).
+- Se esse valor já existir no seguinte (ex. já há `B45223A`), usa `B452230`, que fica entre os dois.
+- Arrastado para o primeiro lugar: baixa o último carácter do primeiro artigo e acrescenta `z` (`A55023` → `A55022Z`).
+- Sem espaço possível (ex. dois artigos com o mesmo valor à volta): recusa e explica.
+
+Segurança da escrita no Primavera:
+- A única escrita é `Sql:AtualizarOrdemQuery` (por omissão `UPDATE PRIMSS2CLO.dbo.Artigo SET CDU_MSS_ORDEM = @Ordem WHERE Artigo = @Codigo AND ISNULL(CDU_MSS_ORDEM, '') = @OrdemAnterior`). Só é aceite um único UPDATE que contenha `CDU_MSS_ORDEM`, `@Ordem`, `@Codigo` e `@OrdemAnterior`.
+- Tudo numa transação: cada UPDATE tem de afetar exatamente 1 linha; se o valor mudou entretanto (0 linhas) ou a query apanha mais de uma, nada é gravado.
+- Cada alteração fica registada em `%ProgramData%\MSS\PortalOrdemMss\data\alteracoes-ordem.csv` (data; artigo; ordem anterior; ordem nova), para poder desfazer à mão.
+- Só aceita gravar a partir do próprio servidor, ou com a chave da variável de ambiente `MSS_PORTAL_ORDEM_ADMIN_KEY` no cabeçalho `X-Admin-Key`. `Portal:PermitirReordenar: false` desliga a função.
+- O utilizador SQL da connection string precisa de permissão de UPDATE na tabela `Artigo`.
+- O Portal de Encomendas Rápidas também ordena por CDU_MSS_ORDEM, por isso a nova ordem aparece lá também.
 
 ## Fotos
 

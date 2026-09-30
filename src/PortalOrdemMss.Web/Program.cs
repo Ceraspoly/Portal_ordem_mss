@@ -25,6 +25,7 @@ builder.Services.AddSingleton<ProductImageService>();
 builder.Services.AddSingleton<DemoArtigoProvider>();
 builder.Services.AddSingleton<SqlArtigoProvider>();
 builder.Services.AddSingleton<IArtigoProvider, DynamicArtigoProvider>();
+builder.Services.AddSingleton(new OrdemAuditLog(Path.Combine(rootDirectory, "data", "alteracoes-ordem.csv")));
 builder.Services.AddResponseCompression(o => o.EnableForHttps = true);
 builder.Services.AddHealthChecks();
 
@@ -90,8 +91,14 @@ catch (Exception ex)
 
 app.MapHealthChecks("/health");
 
-app.MapGet("/api/config", (IOptionsMonitor<PortalOptions> opts) =>
-    Results.Ok(new { titulo = opts.CurrentValue.Titulo, demo = opts.CurrentValue.DemoMode, pageSize = opts.CurrentValue.PageSize }));
+app.MapGet("/api/config", (HttpContext ctx, IOptionsMonitor<PortalOptions> opts) =>
+    Results.Ok(new
+    {
+        titulo = opts.CurrentValue.Titulo,
+        demo = opts.CurrentValue.DemoMode,
+        pageSize = opts.CurrentValue.PageSize,
+        podeReordenar = opts.CurrentValue.PermitirReordenar && IsWriteAllowed(ctx)
+    }));
 
 app.MapGet("/api/familias", async (IArtigoProvider data, CancellationToken ct) =>
     Results.Ok(await data.GetFamiliasAsync(ct)));
@@ -107,6 +114,63 @@ app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, IArti
     return Results.Ok(await data.SearchAsync(pesquisa, ct));
 });
 
+// Única escrita do portal: grava o CDU_MSS_ORDEM depois de arrastar artigos.
+app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoProvider data,
+    IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, CancellationToken ct) =>
+{
+    if (!opts.CurrentValue.PermitirReordenar || !IsWriteAllowed(ctx))
+    {
+        return Results.Json(new { error = "Não tens permissão para mudar a ordem a partir deste computador." }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    IReadOnlyList<AlteracaoOrdem> alteracoes;
+    try
+    {
+        alteracoes = OrdemPlanner.Planear(req.Original ?? [], req.Nova ?? [], req.Arrastados);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+
+    if (alteracoes.Count == 0)
+    {
+        return Results.Ok(new { gravados = 0 });
+    }
+
+    try
+    {
+        await data.GravarOrdemAsync(alteracoes, ct);
+    }
+    catch (OrdemConflitoException ex)
+    {
+        return Results.Conflict(new { error = ex.Message });
+    }
+
+    var origem = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+    audit.Registar(alteracoes, opts.CurrentValue.DemoMode ? $"demo {origem}" : origem);
+    app.Logger.LogInformation("Ordem gravada para {Count} artigos a partir de {Origem}.", alteracoes.Count, origem);
+    return Results.Ok(new { gravados = alteracoes.Count });
+});
+
 app.Run();
+
+// Escrever no Primavera só a partir do próprio servidor (loopback) ou com a
+// chave da variável de ambiente MSS_PORTAL_ORDEM_ADMIN_KEY no cabeçalho
+// X-Admin-Key. Sem chave definida, pedidos remotos ficam bloqueados.
+static bool IsWriteAllowed(HttpContext ctx)
+{
+    var remote = ctx.Connection.RemoteIpAddress;
+    if (remote is null || System.Net.IPAddress.IsLoopback(remote))
+    {
+        return true;
+    }
+
+    var key = Environment.GetEnvironmentVariable("MSS_PORTAL_ORDEM_ADMIN_KEY");
+    return !string.IsNullOrWhiteSpace(key)
+        && ctx.Request.Headers.TryGetValue("X-Admin-Key", out var provided)
+        && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(key), System.Text.Encoding.UTF8.GetBytes(provided.ToString()));
+}
 
 public partial class Program;

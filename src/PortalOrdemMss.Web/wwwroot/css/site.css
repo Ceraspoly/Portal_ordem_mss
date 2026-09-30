@@ -9,6 +9,9 @@
 
 * { box-sizing: border-box; }
 
+/* O atributo hidden tem de ganhar a regras como .mais { display: block }. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -78,6 +81,38 @@ main { padding: 20px; }
 .nome { font-size: 15px; font-weight: 600; margin: 10px 0 4px; }
 .familia { margin: 0; color: var(--muted); font-size: 13px; }
 .ordem { margin: 4px 0 0; color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.btn {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.btn:disabled { opacity: .5; cursor: default; }
+.btn-principal { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.barra-ordenar {
+  position: sticky;
+  top: 65px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: #fff8ec;
+  border-bottom: 1px solid #f0d9b0;
+}
+.barra-ordenar span { margin-right: auto; }
+
+.grelha.a-ordenar .artigo { cursor: grab; user-select: none; }
+.grelha.a-ordenar .artigo img { pointer-events: none; }
+.artigo.a-arrastar { opacity: .35; }
+.artigo.mudou { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
 .mais {
   display: block;

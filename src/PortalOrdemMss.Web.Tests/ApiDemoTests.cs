@@ -66,4 +66,25 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
         var familias = await _client.GetFromJsonAsync<List<Familia>>("/api/familias");
         Assert.Equal(3, familias!.Count);
     }
+
+    [Fact]
+    public async Task Gravar_ordem_em_demo_e_detetar_conflito()
+    {
+        var ceras = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER"))!;
+        Assert.True(ceras.Count >= 3);
+        var original = ceras.Select(a => new ArtigoOrdem(a.Codigo, a.Ordem)).ToList();
+        var nova = new List<string> { ceras[1].Codigo, ceras[0].Codigo };
+        nova.AddRange(ceras.Skip(2).Select(a => a.Codigo));
+
+        var r = await _client.PostAsJsonAsync("/api/ordem", new NovaOrdemRequest(original, nova, [ceras[0].Codigo]));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+
+        var depois = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER"))!;
+        Assert.Equal(nova, depois.Select(a => a.Codigo));
+        Assert.Equal(ceras[1].Ordem + "a", depois[1].Ordem);
+
+        // Mesmo pedido outra vez: o valor anterior já não bate certo.
+        var repetido = await _client.PostAsJsonAsync("/api/ordem", new NovaOrdemRequest(original, nova, [ceras[0].Codigo]));
+        Assert.Equal(HttpStatusCode.Conflict, repetido.StatusCode);
+    }
 }

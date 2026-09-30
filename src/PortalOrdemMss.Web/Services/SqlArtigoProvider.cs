@@ -69,6 +69,50 @@ public sealed class SqlArtigoProvider(IOptionsMonitor<SqlOptions> options, Produ
         return result;
     }
 
+    public async Task GravarOrdemAsync(IReadOnlyList<AlteracaoOrdem> alteracoes, CancellationToken ct)
+    {
+        var opts = options.CurrentValue;
+        if (!QuerySafety.IsOrdemUpdate(opts.AtualizarOrdemQuery, out var reason))
+        {
+            throw new InvalidOperationException($"Gravação recusada: {reason}");
+        }
+
+        await using var connection = await OpenAsync(opts, ct);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(ct);
+        try
+        {
+            foreach (var a in alteracoes)
+            {
+                await using var command = new SqlCommand(opts.AtualizarOrdemQuery, connection, transaction)
+                {
+                    CommandTimeout = opts.CommandTimeoutSeconds
+                };
+                command.Parameters.Add("@Ordem", SqlDbType.NVarChar, 100).Value = a.Novo;
+                command.Parameters.Add("@Codigo", SqlDbType.NVarChar, 100).Value = a.Codigo;
+                command.Parameters.Add("@OrdemAnterior", SqlDbType.NVarChar, 100).Value = a.Anterior;
+
+                // Tem de mexer em exatamente 1 linha: 0 quer dizer que alguém
+                // mudou a ordem entretanto; mais de 1 quer dizer que a query
+                // configurada não filtra bem pelo artigo. Em ambos os casos
+                // não se grava nada.
+                var linhas = await command.ExecuteNonQueryAsync(ct);
+                if (linhas != 1)
+                {
+                    throw new OrdemConflitoException(linhas == 0
+                        ? $"A ordem do artigo {a.Codigo} mudou entretanto no Primavera. Atualiza a página e tenta de novo."
+                        : $"A gravação do artigo {a.Codigo} afetaria {linhas} linhas. Nada foi gravado; verifica Sql:AtualizarOrdemQuery.");
+                }
+            }
+
+            await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
     private static async Task<SqlConnection> OpenAsync(SqlOptions opts, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(opts.ConnectionString))

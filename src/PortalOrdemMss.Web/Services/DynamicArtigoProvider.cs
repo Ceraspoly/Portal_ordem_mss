@@ -19,4 +19,7 @@ public sealed class DynamicArtigoProvider(
 
     public Task<IReadOnlyList<Familia>> GetFamiliasAsync(CancellationToken ct) =>
         Current.GetFamiliasAsync(ct);
+
+    public Task GravarOrdemAsync(IReadOnlyList<AlteracaoOrdem> alteracoes, CancellationToken ct) =>
+        Current.GravarOrdemAsync(alteracoes, ct);
 }

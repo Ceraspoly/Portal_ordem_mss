@@ -10,7 +10,7 @@ public sealed class DemoArtigoProvider(ProductImageService images) : IArtigoProv
         new("ACE", "Acessórios"),
     ];
 
-    private static readonly (string Codigo, string Nome, string Familia, int Ordem)[] Dados =
+    private static readonly (string Codigo, string Nome, string Familia, int Ordem)[] DadosIniciais =
     [
         ("VEL001", "Vela lisa branca 20 cm", "VEL", 10),
         ("VEL002", "Vela lisa marfim 20 cm", "VEL", 20),
@@ -26,21 +26,53 @@ public sealed class DemoArtigoProvider(ProductImageService images) : IArtigoProv
         ("ACE004", "Corante para cera (6 cores)", "ACE", 40),
     ];
 
+    // Ordem em memória (texto, como no Primavera) para se poder testar o
+    // arrastar e gravar sem SQL. Perde-se ao reiniciar.
+    private readonly Dictionary<string, string> _ordem = DadosIniciais.ToDictionary(d => d.Codigo, d => d.Ordem.ToString("D4"));
+    private readonly object _gate = new();
+
     public Task<IReadOnlyList<Artigo>> SearchAsync(PesquisaArtigos pesquisa, CancellationToken ct)
     {
         var nomes = Familias.ToDictionary(f => f.Codigo, f => f.Nome);
-        IReadOnlyList<Artigo> result = Dados
+        Dictionary<string, string> ordem;
+        lock (_gate)
+        {
+            ordem = new Dictionary<string, string>(_ordem);
+        }
+
+        IReadOnlyList<Artigo> result = DadosIniciais
             .Where(d => pesquisa.Familia.Length == 0 || d.Familia == pesquisa.Familia)
             .Where(d => pesquisa.Search.Length == 0
                         || d.Codigo.Contains(pesquisa.Search, StringComparison.OrdinalIgnoreCase)
                         || d.Nome.Contains(pesquisa.Search, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(d => nomes[d.Familia]).ThenBy(d => d.Ordem).ThenBy(d => d.Codigo)
+            .OrderBy(d => nomes[d.Familia]).ThenBy(d => ordem[d.Codigo], StringComparer.Ordinal).ThenBy(d => d.Codigo)
             .Skip(pesquisa.Offset).Take(pesquisa.Limit)
-            .Select(d => new Artigo(d.Codigo, d.Nome, d.Familia, nomes[d.Familia], images.ResolveImageUrl(string.Empty, d.Codigo), d.Ordem.ToString("D4")))
+            .Select(d => new Artigo(d.Codigo, d.Nome, d.Familia, nomes[d.Familia], images.ResolveImageUrl(string.Empty, d.Codigo), ordem[d.Codigo]))
             .ToList();
         return Task.FromResult(result);
     }
 
     public Task<IReadOnlyList<Familia>> GetFamiliasAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Familia>>(Familias.OrderBy(f => f.Nome).ToList());
+
+    public Task GravarOrdemAsync(IReadOnlyList<AlteracaoOrdem> alteracoes, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            foreach (var a in alteracoes)
+            {
+                if (!_ordem.TryGetValue(a.Codigo, out var atual) || atual != a.Anterior)
+                {
+                    throw new OrdemConflitoException($"A ordem do artigo {a.Codigo} mudou entretanto. Atualiza a página e tenta de novo.");
+                }
+            }
+
+            foreach (var a in alteracoes)
+            {
+                _ordem[a.Codigo] = a.Novo;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
 }
