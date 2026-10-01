@@ -64,6 +64,10 @@ public class OrdemPlannerTests
         Assert.Throws<ArgumentException>(() => OrdemPlanner.Planear(Lista(("A", "1"), ("B", "2")), ["A", "C"], ["C"]));
 
     [Fact]
-    public void Recusa_quando_nao_ha_espaco() =>
-        Assert.Throws<ArgumentException>(() => OrdemPlanner.Planear(Lista(("A", "5"), ("B", "5"), ("X", "9")), ["A", "X", "B"], ["X"]));
+    public void Sem_espaco_fica_igual_ao_anterior()
+    {
+        var original = Lista(("A", "CA0000A"), ("B", "CA0000A"), ("X", "CB0001"));
+        var r = OrdemPlanner.Planear(original, ["A", "X", "B"], ["X"]);
+        Assert.Equal(new AlteracaoOrdem("X", "CB0001", "CA0000A"), Assert.Single(r));
+    }
 }

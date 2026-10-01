@@ -55,7 +55,7 @@ As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artig
 Regra de gravação (`Services/OrdemPlanner.cs`): **só o artigo arrastado muda**, e fica com o CDU_MSS_ORDEM do artigo que ficou antes dele mais um `a` (ex. arrastar `A55023` para depois de `B45223` grava `B45223A`; mantém maiúsculas se o valor só tiver maiúsculas).
 - Se esse valor já existir no seguinte (ex. já há `B45223A`), usa `B452230`, que fica entre os dois.
 - Arrastado para o primeiro lugar: baixa o último carácter do primeiro artigo e acrescenta `z` (`A55023` → `A55022Z`).
-- Sem espaço possível (ex. dois artigos com o mesmo valor à volta): recusa e explica.
+- Sem espaço possível (ex. anterior e seguinte ambos `CA0000A`): fica com o mesmo valor do anterior (no primeiro lugar, igual ao seguinte).
 
 Segurança da escrita no Primavera:
 - A única escrita é `Sql:AtualizarOrdemQuery` (por omissão `UPDATE PRIMSS2CLO.dbo.Artigo SET CDU_MSS_ORDEM = @Ordem WHERE Artigo = @Codigo AND ISNULL(CDU_MSS_ORDEM, '') = @OrdemAnterior`). Só é aceite um único UPDATE que contenha `CDU_MSS_ORDEM`, `@Ordem`, `@Codigo` e `@OrdemAnterior`.

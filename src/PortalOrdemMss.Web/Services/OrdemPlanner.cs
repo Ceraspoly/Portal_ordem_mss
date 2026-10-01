@@ -77,10 +77,13 @@ public static class OrdemPlanner
                 }
             }
 
+            // Sem espaço entre os dois (ex. anterior e seguinte ambos
+            // "CA0000A"): fica igual ao anterior (pedido do Bruno,
+            // 2026-10-01); no primeiro lugar, igual ao seguinte.
             var novo = ValorEntre(anterior, seguinte)
-                ?? throw new ArgumentException(anterior is null
-                    ? $"Não há espaço para pôr o artigo {artigo.Codigo} em primeiro lugar. Arrasta-o para depois de outro artigo."
-                    : $"Não há espaço entre \"{anterior}\" e \"{seguinte}\" para o artigo {artigo.Codigo}. Corrige a ordem desses artigos no Primavera.");
+                ?? anterior
+                ?? seguinte
+                ?? throw new ArgumentException($"Não foi possível calcular a ordem do artigo {artigo.Codigo}.");
 
             valores[i] = novo;
             if (!string.Equals(novo, artigo.Ordem, StringComparison.Ordinal))
