@@ -59,28 +59,28 @@ main { padding: 20px; }
 
 .grelha {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 10px;
 }
 
 .artigo {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 12px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
 }
 
-/* Foto sempre 200x200, sem deformar (mesmo critério do portal de encomendas). */
-.foto { width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
-.foto img { width: 200px; height: 200px; object-fit: contain; background: #fff; }
+/* Foto sempre 100x100, sem deformar (mesmo critério do portal de encomendas). */
+.foto { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }
+.foto img { width: 100px; height: 100px; object-fit: contain; background: #fff; }
 
-.nome { font-size: 15px; font-weight: 600; margin: 10px 0 4px; }
-.familia { margin: 0; color: var(--muted); font-size: 13px; }
-.ordem { margin: 4px 0 0; color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+.nome { font-size: 13px; font-weight: 600; margin: 6px 0 2px; line-height: 1.25; }
+.familia { margin: 0; color: var(--muted); font-size: 12px; }
+.ordem { margin: 2px 0 0; color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .btn {
   height: 36px;

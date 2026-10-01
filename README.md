@@ -1,12 +1,12 @@
 # Portal Ordem MSS — catálogo de artigos
 
-Catálogo com o que foi pedido: **foto do artigo (200×200), nome, família e CDU_MSS_Ordem**. Permite arrastar artigos para mudar a ordem, gravando o CDU_MSS_ORDEM no Primavera (única escrita). Feito a partir dos padrões do Portal de Encomendas Rápidas (`Ceraspoly/portal-encomendas-rapidas`), sem preços, clientes, carrinho nem login.
+Catálogo com o que foi pedido: **foto do artigo (100×100), nome, família e CDU_MSS_Ordem**. Permite arrastar artigos para mudar a ordem, gravando o CDU_MSS_ORDEM no Primavera (única escrita). Feito a partir dos padrões do Portal de Encomendas Rápidas (`Ceraspoly/portal-encomendas-rapidas`), sem preços, clientes, carrinho nem login.
 
 ## Estado
 
 - Compila com o SDK .NET 10 (`dotnet build -c Release`, 0 avisos, 0 erros).
 - 31 testes a passar (`dotnet test`), incluindo a API em modo demonstração e a regra de reordenação.
-- Testado em modo demonstração no browser (desktop e telemóvel): a foto fica sempre em 200×200.
+- Testado em modo demonstração no browser (desktop e telemóvel): a foto fica sempre em 100×100.
 - **Ainda não testado contra o SQL Server do Primavera** nem publicado em Windows.
 
 ## Correr em desenvolvimento
@@ -73,7 +73,7 @@ Ordem de procura (`ProductImageService`):
 3. Código do artigo como nome de ficheiro.
 4. `/img/placeholder.svg`.
 
-O tamanho 200×200 é feito no browser (`object-fit: contain`, sem deformar), tal como no portal de encomendas. Se as fotos originais forem muito pesadas, o passo seguinte é gerar miniaturas no servidor.
+O tamanho 100×100 é feito no browser (`object-fit: contain`, sem deformar), tal como no portal de encomendas. Se as fotos originais forem muito pesadas, o passo seguinte é gerar miniaturas no servidor.
 
 ## Pôr em produção (Windows, ainda por validar)
 
