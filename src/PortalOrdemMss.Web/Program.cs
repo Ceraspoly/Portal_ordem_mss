@@ -114,6 +114,20 @@ app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, IArti
     return Results.Ok(await data.SearchAsync(pesquisa, ct));
 });
 
+// Mostra, sem gravar nada, que CDU_MSS_ORDEM cada artigo arrastado vai ter.
+app.MapPost("/api/ordem/previsao", (NovaOrdemRequest req) =>
+{
+    try
+    {
+        var alteracoes = OrdemPlanner.Planear(req.Original ?? [], req.Nova ?? [], req.Arrastados);
+        return Results.Ok(alteracoes);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
 // Única escrita do portal: grava o CDU_MSS_ORDEM depois de arrastar artigos.
 app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoProvider data,
     IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, CancellationToken ct) =>

@@ -26,6 +26,7 @@ function buildCard(artigo) {
   node.querySelector(".ordem").textContent = artigo.ordem ? `Ordem ${artigo.ordem}` : "";
   node.title = artigo.codigo;
   node.dataset.codigo = artigo.codigo;
+  node.dataset.ordem = artigo.ordem || "";
   return node;
 }
 
@@ -83,9 +84,10 @@ function entrarEmOrdenar() {
   el("barra-ordenar").hidden = false;
   el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = true;
   const maisPorCarregar = !el("mais").hidden;
-  el("ordenar-info").textContent = maisPorCarregar
+  state.ordenar.info = maisPorCarregar
     ? `Arrasta os artigos para a nova posição. Só os ${state.artigos.length} artigos já carregados entram na troca.`
     : "Arrasta os artigos para a nova posição.";
+  el("ordenar-info").textContent = state.ordenar.info;
   marcarAlterados();
   atualizarBotaoOrdenar();
 }
@@ -93,7 +95,11 @@ function entrarEmOrdenar() {
 function sairDeOrdenar() {
   state.ordenar = null;
   el("grelha").classList.remove("a-ordenar");
-  [...el("grelha").children].forEach((n) => { n.draggable = false; n.classList.remove("mudou"); });
+  [...el("grelha").children].forEach((n) => {
+    n.draggable = false;
+    n.classList.remove("mudou");
+    n.querySelector(".ordem").textContent = textoOrdem(n.dataset.ordem);
+  });
   el("barra-ordenar").hidden = true;
   el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = false;
   atualizarBotaoOrdenar();
@@ -137,7 +143,41 @@ el("grelha").addEventListener("dragend", () => {
   arrastado.classList.remove("a-arrastar");
   arrastado = null;
   marcarAlterados();
+  mostrarPrevisao();
 });
+
+function pedidoOrdem() {
+  return { original: state.ordenar.original, nova: codigosNoEcra(), arrastados: codigosAlterados() };
+}
+
+function textoOrdem(ordem) {
+  return ordem ? `Ordem ${ordem}` : "";
+}
+
+// Pergunta ao servidor (sem gravar) que ordem os artigos arrastados vão
+// ter e mostra-a logo no cartão: "Ordem 0010 → 0030a".
+let pedidoPrevisao = 0;
+async function mostrarPrevisao() {
+  const pedido = ++pedidoPrevisao;
+  const cards = [...el("grelha").children];
+  try {
+    const alteracoes = await fetchJson("/api/ordem/previsao", { method: "POST", body: JSON.stringify(pedidoOrdem()) });
+    if (pedido !== pedidoPrevisao || !state.ordenar) return;
+    const novos = new Map(alteracoes.map((a) => [a.codigo, a.novo]));
+    cards.forEach((n) => {
+      const ordem = n.querySelector(".ordem");
+      const novo = novos.get(n.dataset.codigo);
+      if (novo === undefined) {
+        ordem.textContent = textoOrdem(n.dataset.ordem);
+      } else {
+        ordem.replaceChildren(`Ordem ${n.dataset.ordem || "(vazio)"} → `, Object.assign(document.createElement("strong"), { textContent: novo }));
+      }
+    });
+    el("ordenar-info").textContent = state.ordenar.info;
+  } catch (err) {
+    if (pedido === pedidoPrevisao) el("ordenar-info").textContent = err.message;
+  }
+}
 
 function codigosAlterados() {
   return [...el("grelha").querySelectorAll(".artigo.mudou")].map((n) => n.dataset.codigo);
@@ -154,7 +194,7 @@ async function guardarOrdem() {
   try {
     const r = await fetchJson("/api/ordem", {
       method: "POST",
-      body: JSON.stringify({ original: state.ordenar.original, nova: codigosNoEcra(), arrastados: codigosAlterados() })
+      body: JSON.stringify(pedidoOrdem())
     });
     sairDeOrdenar();
     await carregar(true);

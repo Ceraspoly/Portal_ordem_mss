@@ -76,6 +76,12 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
         var nova = new List<string> { ceras[1].Codigo, ceras[0].Codigo };
         nova.AddRange(ceras.Skip(2).Select(a => a.Codigo));
 
+        var previsao = await _client.PostAsJsonAsync("/api/ordem/previsao", new NovaOrdemRequest(original, nova, [ceras[0].Codigo]));
+        var alteracoes = await previsao.Content.ReadFromJsonAsync<List<AlteracaoOrdem>>();
+        Assert.Equal(new AlteracaoOrdem(ceras[0].Codigo, ceras[0].Ordem, ceras[1].Ordem + "a"), Assert.Single(alteracoes!));
+        var semMudar = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER"))!;
+        Assert.Equal(ceras.Select(a => a.Ordem), semMudar.Select(a => a.Ordem));
+
         var r = await _client.PostAsJsonAsync("/api/ordem", new NovaOrdemRequest(original, nova, [ceras[0].Codigo]));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
 
