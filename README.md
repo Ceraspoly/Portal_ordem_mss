@@ -44,12 +44,12 @@ Abre `http://127.0.0.1:5090`. Arranca em modo demonstração (12 artigos fictíc
 | `Sql:ArtigosQuery` | Tem de devolver `Codigo, Nome, Familia, FamiliaNome, Imagem, Ordem`; pode usar `@Search, @LikeSearch, @Familia, @Offset, @Limit` |
 | `Sql:FamiliasQuery` | Tem de devolver `Codigo, Nome` |
 
-As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artigos anulados (`ArtigoAnulado`, `CDU_PS_ANULAR`) e ordenam por família e `CDU_MSS_ORDEM`. Só são aceites queries `SELECT` (`QuerySafety`) e os valores vão sempre como parâmetros. A única escrita é a da ordem (ver abaixo).
+As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artigos anulados (`ArtigoAnulado`, `CDU_PS_ANULAR`) e ordenam só por `CDU_MSS_ORDEM` (depois pelo código), independentemente da família. Só são aceites queries `SELECT` (`QuerySafety`) e os valores vão sempre como parâmetros. A única escrita é a da ordem (ver abaixo).
 
 ## Mudar a ordem
 
-1. Escolher uma família (sem texto na pesquisa) e carregar em **Ordenar**.
-2. A família inteira aparece de uma vez (até 3000 artigos), já sem "Carregar mais". Para mover um artigo:
+1. Sem texto na pesquisa, carregar em **Ordenar**. Com uma família escolhida ordena-se só essa família; em "Todas as famílias" ordena-se o catálogo inteiro pelo CDU_MSS_ORDEM.
+2. Os artigos aparecem todos de uma vez (até 5000; acima disso pede para escolher uma família), já sem "Carregar mais". Para mover um artigo:
    - arrastar a linha (a página desliza sozinha quando se chega ao topo ou ao fundo do ecrã);
    - botões ⤒ (topo), ↑ (subir), ↓ (descer), ⤓ (fim);
    - clicar na linha e usar as setas ↑ ↓, `Home` e `End`.
@@ -66,7 +66,7 @@ Regra de gravação (`Services/OrdemPlanner.cs`): **só o artigo arrastado muda*
 Segurança da escrita no Primavera:
 - A única escrita é `Sql:AtualizarOrdemQuery` (por omissão `UPDATE PRIMSS2CLO.dbo.Artigo SET CDU_MSS_ORDEM = @Ordem WHERE Artigo = @Codigo AND ISNULL(CDU_MSS_ORDEM, '') = @OrdemAnterior`). Só é aceite um único UPDATE que contenha `CDU_MSS_ORDEM`, `@Ordem`, `@Codigo` e `@OrdemAnterior`.
 - Tudo numa transação: cada UPDATE tem de afetar exatamente 1 linha; se o valor mudou entretanto (0 linhas) ou a query apanha mais de uma, nada é gravado.
-- **Antes de cada gravação** é criada uma cópia em texto (abre no Bloco de Notas) em `%ProgramData%\MSS\PortalOrdemMss\data\historico\<data>_<família>.txt`, com as alterações a gravar e o CDU_MSS_ORDEM atual de **todos** os artigos da família, lido do Primavera nesse momento. Se a cópia não puder ser escrita, nada é gravado. Estes ficheiros nunca são apagados pelo portal.
+- **Antes de cada gravação** é criada uma cópia em texto (abre no Bloco de Notas) em `%ProgramData%\MSS\PortalOrdemMss\data\historico\<data>_<família ou "todas">.txt`, com as alterações a gravar e o CDU_MSS_ORDEM atual de **todos** os artigos da família (ou do catálogo inteiro), lido do Primavera nesse momento. Se a cópia não puder ser escrita, nada é gravado. Estes ficheiros nunca são apagados pelo portal.
 - Depois de gravar, cada alteração fica também em `%ProgramData%\MSS\PortalOrdemMss\data\alteracoes-ordem.csv` (data; artigo; ordem anterior; ordem nova; origem), para poder desfazer à mão.
 - Só aceita gravar a partir do próprio servidor, ou com a chave da variável de ambiente `MSS_PORTAL_ORDEM_ADMIN_KEY` no cabeçalho `X-Admin-Key`. `Portal:PermitirReordenar: false` desliga a função.
 - Para abrir e ordenar a partir de outro PC da rede: correr o script com `-Rede`. Põe `Portal:ListenUrl` = `http://0.0.0.0:5090` e `Portal:PermitirEscritaNaRede` = `true` no `settings.json` (com cópia `settings.json.bak-<data>` antes) e abre a porta na firewall. Só aceita gravar de IPs privados (10.x, 172.16-31.x, 192.168.x); qualquer pessoa nessa rede passa a poder gravar a ordem. Para voltar a só ver na rede, pôr `PermitirEscritaNaRede` a `false` (relido sem reiniciar).

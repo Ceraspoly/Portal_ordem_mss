@@ -106,14 +106,22 @@ app.MapGet("/api/familias", async (IArtigoProvider data, CancellationToken ct) =
 app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, bool? todos, IArtigoProvider data,
     IOptionsMonitor<PortalOptions> opts, CancellationToken ct) =>
 {
-    // todos=true: a família inteira de uma vez, para o modo de ordenação em
-    // lista (só com família escolhida, para não carregar o catálogo todo).
-    var familiaInteira = todos == true && !string.IsNullOrWhiteSpace(familia);
+    // todos=true: todos os artigos de uma vez (da família escolhida, ou do
+    // catálogo inteiro), para o modo de ordenação. Com limite de segurança:
+    // se houver mais, recusa em vez de devolver só uma parte.
+    if (todos == true)
+    {
+        var tudo = await data.SearchAsync(new PesquisaArtigos(string.Empty, (familia ?? string.Empty).Trim(), 0, MaxArtigosOrdenar + 1), ct);
+        return tudo.Count > MaxArtigosOrdenar
+            ? Results.BadRequest(new { error = $"São mais de {MaxArtigosOrdenar} artigos para ordenar de uma vez. Escolhe uma família." })
+            : Results.Ok(tudo);
+    }
+
     var pesquisa = new PesquisaArtigos(
         (q ?? string.Empty).Trim(),
         (familia ?? string.Empty).Trim(),
-        familiaInteira ? 0 : Math.Max(0, offset ?? 0),
-        familiaInteira ? MaxArtigosFamilia : opts.CurrentValue.PageSize);
+        Math.Max(0, offset ?? 0),
+        opts.CurrentValue.PageSize);
     return Results.Ok(await data.SearchAsync(pesquisa, ct));
 });
 
@@ -161,10 +169,9 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
     // lidos agora do Primavera. Sem cópia não se grava nada.
     try
     {
+        // Família vazia = catálogo inteiro (ordenação sem família).
         var familia = (req.Familia ?? "").Trim();
-        var atuais = familia.Length == 0
-            ? []
-            : await data.SearchAsync(new PesquisaArtigos("", familia, 0, MaxArtigosFamilia), ct);
+        var atuais = await data.SearchAsync(new PesquisaArtigos("", familia, 0, MaxArtigosOrdenar + 1), ct);
         var copia = audit.GuardarCopia(familia, atuais, alteracoes, opts.CurrentValue.DemoMode ? $"demo {origem}" : origem);
         app.Logger.LogInformation("Cópia da ordem antes de gravar: {Ficheiro}", copia);
     }
@@ -234,6 +241,6 @@ static bool IsRedeLocal(System.Net.IPAddress ip)
 
 public partial class Program
 {
-    // Limite de segurança para "a família inteira" no modo de ordenação.
-    private const int MaxArtigosFamilia = 3000;
+    // Limite de segurança para carregar tudo de uma vez no modo de ordenação.
+    private const int MaxArtigosOrdenar = 5000;
 }

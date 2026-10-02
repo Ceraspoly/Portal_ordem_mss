@@ -71,17 +71,17 @@ async function carregar(reset) {
 
 // Mostra os artigos arrastados que ficaram noutro sítio (só esses mudam de
 // valor ao gravar: ficam com o CDU_MSS_ORDEM do anterior + "a").
-// Só se reordena dentro de uma família e sem pesquisa: assim a lista
-// carregada é um bloco seguido da ordem real e as trocas fazem sentido.
+// Só se reordena sem pesquisa: carrega-se a família inteira (ou, em "Todas
+// as famílias", o catálogo inteiro), por isso a lista é a ordem real.
 function podeEntrarEmOrdenar() {
-  return state.podeReordenar && el("familia").value !== "" && el("pesquisa").value.trim() === "" && state.artigos.length > 1;
+  return state.podeReordenar && el("pesquisa").value.trim() === "" && state.artigos.length > 1;
 }
 
 function atualizarBotaoOrdenar() {
   const btn = el("btn-ordenar");
   btn.hidden = !state.podeReordenar;
   btn.disabled = state.ordenar !== null || !podeEntrarEmOrdenar();
-  btn.title = btn.disabled && state.ordenar === null ? "Escolhe uma família (sem pesquisa) para ordenar." : "";
+  btn.title = btn.disabled && state.ordenar === null ? "Apaga o texto da pesquisa para ordenar." : "";
 }
 
 function codigosNoEcra() {
@@ -93,7 +93,7 @@ function codigosNoEcra() {
 async function entrarEmOrdenar() {
   if (!podeEntrarEmOrdenar()) return;
   el("btn-ordenar").disabled = true;
-  el("estado").textContent = "A carregar a família inteira…";
+  el("estado").textContent = el("familia").value ? "A carregar a família inteira…" : "A carregar o catálogo inteiro…";
   let artigos;
   try {
     const params = new URLSearchParams({ familia: el("familia").value, todos: "true" });

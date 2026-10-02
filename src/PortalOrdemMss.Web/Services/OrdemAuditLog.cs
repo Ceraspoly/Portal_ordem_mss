@@ -24,7 +24,7 @@ public sealed class OrdemAuditLog(string path)
     public string GuardarCopia(string familia, IReadOnlyList<Artigo> atuais, IReadOnlyList<AlteracaoOrdem> alteracoes, string origem)
     {
         var agora = DateTime.Now;
-        var nomeFamilia = new string((familia.Length == 0 ? "sem-familia" : familia)
+        var nomeFamilia = new string((familia.Length == 0 ? "todas" : familia)
             .Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_').ToArray());
         var ficheiro = System.IO.Path.Combine(PastaHistorico, $"{agora:yyyy-MM-dd_HHmmss_fff}_{nomeFamilia}.txt");
 
@@ -32,7 +32,7 @@ public sealed class OrdemAuditLog(string path)
         sb.AppendLine("Cópia de segurança do CDU_MSS_ORDEM, feita antes de gravar");
         sb.AppendLine($"Data: {agora:yyyy-MM-dd HH:mm:ss}");
         sb.AppendLine($"Origem: {origem}");
-        sb.AppendLine($"Família: {(familia.Length == 0 ? "(não indicada)" : familia)}");
+        sb.AppendLine($"Família: {(familia.Length == 0 ? "todas" : familia)}");
         sb.AppendLine();
         sb.AppendLine($"Alterações a gravar ({alteracoes.Count}): Artigo;OrdemAnterior;OrdemNova");
         foreach (var a in alteracoes)
@@ -41,7 +41,7 @@ public sealed class OrdemAuditLog(string path)
         }
 
         sb.AppendLine();
-        sb.AppendLine($"Valores atuais de toda a família no Primavera ({atuais.Count} artigos): Artigo;CDU_MSS_ORDEM;Nome");
+        sb.AppendLine($"Valores atuais no Primavera ({atuais.Count} artigos): Artigo;CDU_MSS_ORDEM;Nome");
         foreach (var a in atuais)
         {
             sb.Append(Csv(a.Codigo)).Append(';').Append(Csv(a.Ordem)).Append(';').Append(Csv(a.Nome)).AppendLine();

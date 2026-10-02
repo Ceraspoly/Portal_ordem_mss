@@ -41,7 +41,7 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
     }
 
     [Fact]
-    public async Task Artigos_vem_por_familia_e_ordem_com_paginas()
+    public async Task Artigos_vem_pela_ordem_independentemente_da_familia_com_paginas()
     {
         var pagina1 = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos");
         var pagina2 = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?offset=5");
@@ -52,20 +52,20 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
         Assert.Equal(todos.Count, todos.Select(a => a.Codigo).Distinct().Count());
         Assert.All(todos, a => Assert.Equal(ProductImageService.Placeholder, a.ImagemUrl));
         Assert.Equal(
-            todos.OrderBy(a => a.FamiliaNome).ThenBy(a => a.Ordem, StringComparer.Ordinal).Select(a => a.Codigo),
+            todos.OrderBy(a => a.Ordem, StringComparer.Ordinal).ThenBy(a => a.Codigo, StringComparer.Ordinal).Select(a => a.Codigo),
             todos.Select(a => a.Codigo));
     }
 
     [Fact]
-    public async Task Todos_devolve_a_familia_inteira_ignorando_a_pagina()
+    public async Task Todos_devolve_tudo_de_uma_vez_ignorando_a_pagina()
     {
         // Página de 5: com offset=3 só viriam 2 velas, com todos=true vêm as 5.
         var velas = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=VEL&offset=3&todos=true");
         Assert.Equal(new[] { "VEL001", "VEL002", "VEL003", "VEL004", "VEL005" }, velas!.Select(a => a.Codigo));
 
-        // Sem família, todos=true é ignorado (não carrega o catálogo inteiro).
+        // Sem família, todos=true traz o catálogo inteiro (12 artigos na demo).
         var semFamilia = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?todos=true");
-        Assert.Equal(5, semFamilia!.Count);
+        Assert.Equal(12, semFamilia!.Count);
     }
 
     [Fact]
