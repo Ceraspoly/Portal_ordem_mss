@@ -64,9 +64,10 @@ Regra de gravação (`Services/OrdemPlanner.cs`): **só o artigo arrastado muda*
 Segurança da escrita no Primavera:
 - A única escrita é `Sql:AtualizarOrdemQuery` (por omissão `UPDATE PRIMSS2CLO.dbo.Artigo SET CDU_MSS_ORDEM = @Ordem WHERE Artigo = @Codigo AND ISNULL(CDU_MSS_ORDEM, '') = @OrdemAnterior`). Só é aceite um único UPDATE que contenha `CDU_MSS_ORDEM`, `@Ordem`, `@Codigo` e `@OrdemAnterior`.
 - Tudo numa transação: cada UPDATE tem de afetar exatamente 1 linha; se o valor mudou entretanto (0 linhas) ou a query apanha mais de uma, nada é gravado.
-- Cada alteração fica registada em `%ProgramData%\MSS\PortalOrdemMss\data\alteracoes-ordem.csv` (data; artigo; ordem anterior; ordem nova), para poder desfazer à mão.
+- **Antes de cada gravação** é criada uma cópia em texto (abre no Bloco de Notas) em `%ProgramData%\MSS\PortalOrdemMss\data\historico\<data>_<família>.txt`, com as alterações a gravar e o CDU_MSS_ORDEM atual de **todos** os artigos da família, lido do Primavera nesse momento. Se a cópia não puder ser escrita, nada é gravado. Estes ficheiros nunca são apagados pelo portal.
+- Depois de gravar, cada alteração fica também em `%ProgramData%\MSS\PortalOrdemMss\data\alteracoes-ordem.csv` (data; artigo; ordem anterior; ordem nova; origem), para poder desfazer à mão.
 - Só aceita gravar a partir do próprio servidor, ou com a chave da variável de ambiente `MSS_PORTAL_ORDEM_ADMIN_KEY` no cabeçalho `X-Admin-Key`. `Portal:PermitirReordenar: false` desliga a função.
-- Para ordenar a partir de outro PC da rede: `Portal:ListenUrl` = `http://0.0.0.0:5090`, `Portal:PermitirEscritaNaRede` = `true` (só aceita IPs privados: 10.x, 172.16-31.x, 192.168.x) e abrir a porta na firewall (`-AbrirFirewall` no script). Qualquer pessoa nessa rede passa a poder gravar a ordem.
+- Para abrir e ordenar a partir de outro PC da rede: correr o script com `-Rede`. Põe `Portal:ListenUrl` = `http://0.0.0.0:5090` e `Portal:PermitirEscritaNaRede` = `true` no `settings.json` (com cópia `settings.json.bak-<data>` antes) e abre a porta na firewall. Só aceita gravar de IPs privados (10.x, 172.16-31.x, 192.168.x); qualquer pessoa nessa rede passa a poder gravar a ordem. Para voltar a só ver na rede, pôr `PermitirEscritaNaRede` a `false` (relido sem reiniciar).
 - O utilizador SQL da connection string precisa de permissão de UPDATE na tabela `Artigo`.
 - O Portal de Encomendas Rápidas também ordena por CDU_MSS_ORDEM, por isso a nova ordem aparece lá também.
 
@@ -86,17 +87,18 @@ Uma vez, e depois sempre que houver uma versão nova, num PowerShell **como Admi
 
 ```powershell
 cd C:\_dev\ordem
-powershell -ExecutionPolicy Bypass -File tools\ATUALIZAR-PORTAL.ps1
+powershell -ExecutionPolicy Bypass -File tools\ATUALIZAR-PORTAL.ps1 -Rede
 ```
+(sem `-Rede` o portal só abre no próprio servidor.)
 
 O script (`tools\ATUALIZAR-PORTAL.ps1`) faz `git pull`, publica para `C:\Program Files\MSS\PortalOrdemMss\versions\<data-commit>`, pára o serviço `MssPortalOrdem`, aponta a junção `current` para a versão nova, cria o serviço se não existir e espera que `/health` responda. Depois disso o portal fica sempre ligado (também depois de reiniciar o servidor) e já não é preciso deixar nenhuma janela aberta.
 - Antes da primeira vez, fechar a janela com `dotnet run` (Ctrl+C): o script recusa se a porta estiver ocupada.
 - Precisa do runtime ASP.NET Core 10 no servidor (vem com o SDK que já lá está).
 - O serviço arranca em `delayed-auto` (a pasta das fotos em rede pode não estar pronta logo após um reboot) e reinicia sozinho se falhar depois de arrancar.
 - O serviço corre como LocalSystem: se as fotos estão numa partilha de rede (UNC), confirmar que a conta do computador tem leitura nessa partilha; senão as fotos aparecem como "sem foto".
-- O `settings.json` em `%ProgramData%\MSS\PortalOrdemMss\config` é o mesmo que o `dotnet run` já usava; o script nunca lhe toca.
+- O `settings.json` em `%ProgramData%\MSS\PortalOrdemMss\config` é o mesmo que o `dotnet run` já usava; o script só lhe mexe com `-Rede`, e faz cópia antes.
 - Voltar à versão anterior: `Stop-Service MssPortalOrdem`, `cmd /c rmdir "C:\Program Files\MSS\PortalOrdemMss\current"`, `New-Item -ItemType Junction -Path "C:\Program Files\MSS\PortalOrdemMss\current" -Target "<pasta em versions>"`, `Start-Service MssPortalOrdem`.
-- `-AbrirFirewall` cria a regra de entrada para a porta 5090 (perfis domínio/privado).
+- `-Rede` (ou só `-AbrirFirewall`) cria a regra de entrada para a porta 5090 (perfis domínio/privado). No fim o script mostra o endereço a usar nos outros PCs (`http://<IP do servidor>:5090`).
 - O serviço é independente do `MssPortalEncomendas` (nome, porta e pastas diferentes).
 
 ## Estrutura

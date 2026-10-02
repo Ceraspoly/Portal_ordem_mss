@@ -13,6 +13,8 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "portal-ordem-test-" + Guid.NewGuid().ToString("N"));
 
+        public string Root => _root;
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("Storage:BasePath", _root);
@@ -23,8 +25,13 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
     }
 
     private readonly HttpClient _client;
+    private readonly Factory _factory;
 
-    public ApiDemoTests(Factory factory) => _client = factory.CreateClient();
+    public ApiDemoTests(Factory factory)
+    {
+        _factory = factory;
+        _client = factory.CreateClient();
+    }
 
     [Fact]
     public async Task Health_responde()
@@ -94,8 +101,14 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
         var semMudar = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER"))!;
         Assert.Equal(ceras.Select(a => a.Ordem), semMudar.Select(a => a.Ordem));
 
-        var r = await _client.PostAsJsonAsync("/api/ordem", new NovaOrdemRequest(original, nova, [ceras[0].Codigo]));
+        var r = await _client.PostAsJsonAsync("/api/ordem", new NovaOrdemRequest(original, nova, [ceras[0].Codigo], "CER"));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+
+        // Antes de gravar ficou uma cópia em texto com os valores antigos de toda a família.
+        var copia = Assert.Single(Directory.GetFiles(Path.Combine(_factory.Root, "data", "historico"), "*_CER.txt"));
+        var texto = File.ReadAllText(copia);
+        Assert.Contains($"{ceras[0].Codigo};{ceras[0].Ordem};{ceras[1].Ordem}a", texto);
+        Assert.All(ceras, a => Assert.Contains($"{a.Codigo};{a.Ordem};{a.Nome}", texto));
 
         var depois = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER"))!;
         Assert.Equal(nova, depois.Select(a => a.Codigo));

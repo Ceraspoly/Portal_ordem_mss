@@ -155,6 +155,26 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
         return Results.Ok(new { gravados = 0 });
     }
 
+    var origem = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+
+    // Antes de gravar: cópia em texto de todos os CDU_MSS_ORDEM da família,
+    // lidos agora do Primavera. Sem cópia não se grava nada.
+    try
+    {
+        var familia = (req.Familia ?? "").Trim();
+        var atuais = familia.Length == 0
+            ? []
+            : await data.SearchAsync(new PesquisaArtigos("", familia, 0, MaxArtigosFamilia), ct);
+        var copia = audit.GuardarCopia(familia, atuais, alteracoes, opts.CurrentValue.DemoMode ? $"demo {origem}" : origem);
+        app.Logger.LogInformation("Cópia da ordem antes de gravar: {Ficheiro}", copia);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        app.Logger.LogError(ex, "Não foi possível guardar a cópia antes de gravar a ordem.");
+        return Results.Json(new { error = "Não foi possível guardar a cópia de segurança antes de gravar, por isso nada foi gravado." },
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
     try
     {
         await data.GravarOrdemAsync(alteracoes, ct);
@@ -164,7 +184,6 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
         return Results.Conflict(new { error = ex.Message });
     }
 
-    var origem = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
     audit.Registar(alteracoes, opts.CurrentValue.DemoMode ? $"demo {origem}" : origem);
     app.Logger.LogInformation("Ordem gravada para {Count} artigos a partir de {Origem}.", alteracoes.Count, origem);
     return Results.Ok(new { gravados = alteracoes.Count });

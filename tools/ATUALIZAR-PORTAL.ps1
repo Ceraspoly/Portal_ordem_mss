@@ -5,7 +5,11 @@
       powershell -ExecutionPolicy Bypass -File tools\ATUALIZAR-PORTAL.ps1
   Opções:
       -SemGitPull        não faz git pull (publica o que está na pasta)
-      -AbrirFirewall     cria a regra de firewall para a porta (acesso a partir da rede)
+      -Rede              deixa abrir e usar o portal a partir de qualquer PC da rede local:
+                         põe Portal:ListenUrl = http://0.0.0.0:<Porta> e
+                         Portal:PermitirEscritaNaRede = true no settings.json (guarda antes
+                         uma cópia settings.json.bak-<data>) e abre a porta na firewall
+      -AbrirFirewall     só cria a regra de firewall para a porta
       -Porta 5090        porta usada para confirmar o /health
 
   O que faz:
@@ -19,12 +23,13 @@
   Voltar atrás: parar o serviço, apontar "current" para a pasta da versão anterior em
   "versions" e arrancar de novo (ver README, "Pôr em produção").
   As versões antigas não são apagadas. A configuração (settings.json) fica em
-  %ProgramData%\MSS\PortalOrdemMss e nunca é tocada por este script.
+  %ProgramData%\MSS\PortalOrdemMss e só é alterada com -Rede (e sempre com cópia antes).
 
   Nota: guardar este ficheiro em UTF-8 com BOM (o Windows PowerShell 5.1 lê mal os acentos sem BOM).
 #>
 param(
     [switch]$SemGitPull,
+    [switch]$Rede,
     [switch]$AbrirFirewall,
     [int]$Porta = 5090,
     [string]$Raiz = "C:\Program Files\MSS\PortalOrdemMss",
@@ -101,6 +106,26 @@ if ($null -eq $servico) {
     sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/60000 | Out-Null
 }
 
+if ($Rede) {
+    Passo "A abrir o portal à rede local (settings.json)"
+    $pastaConfig = Join-Path $env:ProgramData "MSS\PortalOrdemMss\config"
+    $settings = Join-Path $pastaConfig "settings.json"
+    New-Item -ItemType Directory -Path $pastaConfig -Force | Out-Null
+    if (Test-Path $settings) {
+        Copy-Item $settings ("$settings.bak-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+        $config = Get-Content $settings -Raw -Encoding UTF8 | ConvertFrom-Json
+    } else {
+        $config = New-Object PSObject
+    }
+    if (-not $config.PSObject.Properties["Portal"]) {
+        $config | Add-Member -NotePropertyName Portal -NotePropertyValue (New-Object PSObject)
+    }
+    $config.Portal | Add-Member -NotePropertyName ListenUrl -NotePropertyValue "http://0.0.0.0:$Porta" -Force
+    $config.Portal | Add-Member -NotePropertyName PermitirEscritaNaRede -NotePropertyValue $true -Force
+    [IO.File]::WriteAllText($settings, ($config | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
+    $AbrirFirewall = $true
+}
+
 if ($AbrirFirewall) {
     $regra = "Portal Ordem MSS ($Porta)"
     if (-not (Get-NetFirewallRule -DisplayName $regra -ErrorAction SilentlyContinue)) {
@@ -133,3 +158,11 @@ if (-not $ok) {
 Write-Host ""
 Write-Host "Pronto: versão $versao a correr como serviço $ServiceName." -ForegroundColor Green
 Write-Host "Abre http://127.0.0.1:$Porta (já não precisas de deixar nenhuma janela aberta)." -ForegroundColor Green
+if ($Rede) {
+    $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } |
+        Select-Object -ExpandProperty IPAddress
+    foreach ($ip in $ips) {
+        Write-Host "Nos outros PCs da rede: http://${ip}:$Porta" -ForegroundColor Green
+    }
+}

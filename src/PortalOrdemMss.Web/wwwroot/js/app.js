@@ -99,7 +99,11 @@ async function entrarEmOrdenar() {
   el("mais").hidden = true;
   el("estado").textContent = `${artigos.length} artigos`;
 
-  state.ordenar = { original: artigos.map((a) => ({ codigo: a.codigo, ordem: a.ordem || "" })), arrastados: new Set() };
+  state.ordenar = {
+    original: artigos.map((a) => ({ codigo: a.codigo, ordem: a.ordem || "" })),
+    arrastados: new Set(),
+    familia: el("familia").value
+  };
   el("grelha").classList.add("a-ordenar", "lista");
   [...el("grelha").children].forEach((n) => { n.draggable = true; });
   el("barra-ordenar").hidden = false;
@@ -224,7 +228,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 function pedidoOrdem() {
-  return { original: state.ordenar.original, nova: codigosNoEcra(), arrastados: codigosAlterados() };
+  return { original: state.ordenar.original, nova: codigosNoEcra(), arrastados: codigosAlterados(), familia: state.ordenar.familia };
 }
 
 function textoOrdem(ordem) {
@@ -271,7 +275,7 @@ async function guardarOrdem() {
   const alterados = marcarAlterados();
   if (alterados === 0) return;
   const destino = state.demo ? "nos dados de demonstração" : "no CDU_MSS_ORDEM do Primavera";
-  if (!confirm(`Vais gravar a nova ordem de ${alterados} artigo(s) ${destino}. Continuar?`)) return;
+  if (!confirm(`Vais gravar a nova ordem de ${alterados} artigo(s) ${destino}.\n\nAntes de gravar fica guardada uma cópia com o CDU_MSS_ORDEM atual de toda a família.\n\nContinuar?`)) return;
 
   el("btn-guardar").disabled = true;
   el("ordenar-info").textContent = "A gravar…";
