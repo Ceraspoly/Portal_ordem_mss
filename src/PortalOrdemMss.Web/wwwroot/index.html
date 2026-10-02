@@ -21,6 +21,10 @@
 
   <div id="barra-ordenar" class="barra-ordenar" hidden>
     <span id="ordenar-info">Arrasta os artigos para a nova posição.</span>
+    <div class="vista" role="group" aria-label="Ver como">
+      <button type="button" class="btn" data-vista="quadrados">Quadrados</button>
+      <button type="button" class="btn" data-vista="lista">Lista</button>
+    </div>
     <button id="btn-cancelar" class="btn" type="button">Cancelar</button>
     <button id="btn-guardar" class="btn btn-principal" type="button" disabled>Guardar ordem</button>
   </div>
@@ -42,9 +46,24 @@
         <button type="button" data-mover="cima" title="Subir uma posição (↑)">↑</button>
         <button type="button" data-mover="baixo" title="Descer uma posição (↓)">↓</button>
         <button type="button" data-mover="fim" title="Mover para o fim">⤓</button>
+        <button type="button" data-mover="depois" class="btn-depois" title="Mover para a seguir a outro artigo">↪ A seguir a…</button>
       </div>
     </article>
   </template>
+
+  <dialog id="dlg-mover" class="dlg-mover">
+    <form id="form-mover" method="dialog">
+      <p class="dlg-titulo">Mover <strong id="mover-nome"></strong> para a seguir a:</p>
+      <input id="mover-alvo" list="lista-alvos" placeholder="Escreve o código ou o nome do artigo" autocomplete="off" required>
+      <datalist id="lista-alvos"></datalist>
+      <p id="mover-erro" class="mover-erro" hidden></p>
+      <div class="dlg-botoes">
+        <button type="button" id="mover-inicio" class="btn">Para o início</button>
+        <button type="button" id="mover-cancelar" class="btn">Cancelar</button>
+        <button type="submit" class="btn btn-principal">Mover</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="js/app.js"></script>
 </body>

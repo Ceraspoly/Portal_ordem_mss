@@ -111,8 +111,26 @@ main { padding: 20px; }
 
 .grelha.a-ordenar .artigo { cursor: grab; user-select: none; }
 
-/* Botões de mover: só aparecem no modo de ordenação em lista. */
+/* Botões de mover: só no modo de ordenação. Em quadrados só aparece
+   "A seguir a…"; em lista aparecem todos. */
 .controlos { display: none; }
+.grelha.a-ordenar .controlos { display: flex; justify-content: center; gap: 4px; margin-top: 4px; }
+.grelha.a-ordenar:not(.lista) .controlos button:not(.btn-depois) { display: none; }
+.controlos .btn-depois { width: auto; padding: 0 8px; font-size: 12px; white-space: nowrap; }
+
+.vista { display: flex; gap: 0; }
+.vista .btn { border-radius: 0; }
+.vista .btn:first-child { border-radius: 6px 0 0 6px; }
+.vista .btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.vista .btn.ativo { background: var(--text); color: #fff; border-color: var(--text); }
+
+.dlg-mover { border: 1px solid var(--line); border-radius: 10px; padding: 18px; width: min(460px, calc(100vw - 32px)); }
+.dlg-mover::backdrop { background: rgba(0, 0, 0, .35); }
+.dlg-titulo { margin: 0 0 10px; }
+.dlg-mover input { width: 100%; padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 6px; }
+.dlg-botoes { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.dlg-botoes #mover-inicio { margin-right: auto; }
+.mover-erro { color: var(--accent); margin: 8px 0 0; font-size: 13px; }
 
 /* Modo de ordenação: lista compacta, uma linha por artigo. */
 .grelha.lista { display: flex; flex-direction: column; gap: 4px; }
@@ -127,7 +145,7 @@ main { padding: 20px; }
 .grelha.lista .nome { flex: 1 1 auto; margin: 0; font-size: 14px; }
 .grelha.lista .familia { display: none; }
 .grelha.lista .ordem { flex: none; min-width: 170px; margin: 0; text-align: right; }
-.grelha.lista .controlos { display: flex; gap: 4px; flex: none; }
+.grelha.lista .controlos { display: flex; gap: 4px; flex: none; margin-top: 0; }
 .controlos button {
   width: 32px;
   height: 32px;

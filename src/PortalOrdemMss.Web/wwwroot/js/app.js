@@ -1,8 +1,20 @@
 "use strict";
 
 const PLACEHOLDER = "/img/placeholder.svg";
-const state = { offset: 0, pageSize: 60, pedido: 0, podeReordenar: false, ordenar: null, artigos: [] };
+const state = { offset: 0, pageSize: 60, pedido: 0, podeReordenar: false, ordenar: null, artigos: [], vista: lerVista() };
 const el = (id) => document.getElementById(id);
+
+// Vista do modo de ordenação ("quadrados" ou "lista"), lembrada neste browser.
+function lerVista() {
+  try { return localStorage.getItem("ordem.vista") === "quadrados" ? "quadrados" : "lista"; } catch { return "lista"; }
+}
+
+function mudarVista(vista) {
+  state.vista = vista;
+  try { localStorage.setItem("ordem.vista", vista); } catch { /* sem armazenamento: só não fica lembrado */ }
+  el("grelha").classList.toggle("lista", state.ordenar !== null && vista === "lista");
+  document.querySelectorAll("[data-vista]").forEach((b) => b.classList.toggle("ativo", b.dataset.vista === vista));
+}
 
 // Só aceita JSON: um erro HTML ou uma resposta vazia viram uma mensagem legível.
 async function fetchJson(url, options) {
@@ -104,11 +116,12 @@ async function entrarEmOrdenar() {
     arrastados: new Set(),
     familia: el("familia").value
   };
-  el("grelha").classList.add("a-ordenar", "lista");
+  el("grelha").classList.add("a-ordenar");
+  mudarVista(state.vista);
   [...el("grelha").children].forEach((n) => { n.draggable = true; });
   el("barra-ordenar").hidden = false;
   el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = true;
-  state.ordenar.info = "Arrasta, usa os botões ⤒ ↑ ↓ ⤓, ou clica num artigo e usa as setas do teclado.";
+  state.ordenar.info = "Arrasta, usa os botões, “A seguir a…”, ou clica num artigo e usa as setas do teclado.";
   el("ordenar-info").textContent = state.ordenar.info;
   marcarAlterados();
   atualizarBotaoOrdenar();
@@ -197,6 +210,58 @@ function mover(card, destino) {
   aposMover();
 }
 
+// Põe o artigo logo a seguir a outro (escolhido no diálogo "A seguir a…").
+function moverDepois(card, referencia) {
+  if (card === referencia) return;
+  state.ordenar.arrastados.add(card.dataset.codigo);
+  referencia.after(card);
+  selecionar(card);
+  card.scrollIntoView({ block: "center" });
+  aposMover();
+}
+
+let aMover = null;
+function abrirMover(card) {
+  aMover = card;
+  el("mover-nome").textContent = card.querySelector(".nome").textContent;
+  el("lista-alvos").replaceChildren(...[...el("grelha").children]
+    .filter((n) => n !== card)
+    .map((n) => new Option(`${n.dataset.codigo} — ${n.querySelector(".nome").textContent}`)));
+  el("mover-alvo").value = "";
+  el("mover-erro").hidden = true;
+  el("dlg-mover").showModal();
+  el("mover-alvo").focus();
+}
+
+// Aceita a opção da lista, o código exato, ou um texto que só apanhe um artigo.
+function encontrarAlvo(texto) {
+  const t = texto.trim().toLowerCase();
+  if (!t) return { erro: "Escreve o código ou o nome do artigo." };
+  const outros = [...el("grelha").children].filter((n) => n !== aMover);
+  const rotulo = (n) => `${n.dataset.codigo} — ${n.querySelector(".nome").textContent}`.toLowerCase();
+  const exato = outros.find((n) => rotulo(n) === t || n.dataset.codigo.toLowerCase() === t);
+  if (exato) return { alvo: exato };
+  const parecidos = outros.filter((n) => rotulo(n).includes(t));
+  if (parecidos.length === 1) return { alvo: parecidos[0] };
+  return { erro: parecidos.length === 0 ? "Não encontrei esse artigo nesta família." : `Há ${parecidos.length} artigos com esse texto. Escolhe um da lista.` };
+}
+
+el("form-mover").addEventListener("submit", (e) => {
+  const r = encontrarAlvo(el("mover-alvo").value);
+  if (r.erro) {
+    e.preventDefault();
+    el("mover-erro").textContent = r.erro;
+    el("mover-erro").hidden = false;
+    return;
+  }
+  moverDepois(aMover, r.alvo);
+});
+el("mover-inicio").addEventListener("click", () => {
+  el("dlg-mover").close();
+  mover(aMover, 0);
+});
+el("mover-cancelar").addEventListener("click", () => el("dlg-mover").close());
+
 function selecionar(card) {
   el("grelha").querySelectorAll(".artigo.selecionado").forEach((n) => n.classList.remove("selecionado"));
   if (card) card.classList.add("selecionado");
@@ -211,13 +276,17 @@ el("grelha").addEventListener("click", (e) => {
     selecionar(card);
     return;
   }
+  if (botao.dataset.mover === "depois") {
+    abrirMover(card);
+    return;
+  }
   const i = [...el("grelha").children].indexOf(card);
   const destinos = { topo: 0, cima: i - 1, baixo: i + 1, fim: Infinity };
   mover(card, destinos[botao.dataset.mover]);
 });
 
 document.addEventListener("keydown", (e) => {
-  if (!state.ordenar) return;
+  if (!state.ordenar || el("dlg-mover").open) return;
   const card = el("grelha").querySelector(".artigo.selecionado");
   if (!card) return;
   const i = [...el("grelha").children].indexOf(card);
@@ -294,6 +363,7 @@ async function guardarOrdem() {
 }
 
 el("btn-ordenar").addEventListener("click", entrarEmOrdenar);
+document.querySelectorAll("[data-vista]").forEach((b) => b.addEventListener("click", () => mudarVista(b.dataset.vista)));
 el("btn-cancelar").addEventListener("click", () => { sairDeOrdenar(); carregar(true); });
 el("btn-guardar").addEventListener("click", guardarOrdem);
 

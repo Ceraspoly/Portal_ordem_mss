@@ -49,10 +49,12 @@ As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artig
 ## Mudar a ordem
 
 1. Escolher uma família (sem texto na pesquisa) e carregar em **Ordenar**.
-2. A família inteira aparece numa lista compacta (até 3000 artigos), já sem "Carregar mais". Para mover um artigo:
+2. A família inteira aparece de uma vez (até 3000 artigos), já sem "Carregar mais". Para mover um artigo:
    - arrastar a linha (a página desliza sozinha quando se chega ao topo ou ao fundo do ecrã);
    - botões ⤒ (topo), ↑ (subir), ↓ (descer), ⤓ (fim);
    - clicar na linha e usar as setas ↑ ↓, `Home` e `End`.
+   - **↪ A seguir a…**: escrever o código ou parte do nome de outro artigo e o artigo vai logo para a seguir a esse (ou "Para o início").
+   No topo há **Quadrados / Lista** para mudar a vista (quadrados pequenos para arrastar, ou linhas com todos os botões); a escolha fica lembrada no browser.
    Cada artigo mudado fica com contorno e mostra logo a ordem nova (`Ordem 0010 → 0030a`), sem gravar.
 3. **Guardar ordem**, confirmar.
 
