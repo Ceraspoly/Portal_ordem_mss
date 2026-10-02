@@ -110,6 +110,42 @@ main { padding: 20px; }
 .barra-ordenar span { margin-right: auto; }
 
 .grelha.a-ordenar .artigo { cursor: grab; user-select: none; }
+
+/* Botões de mover: só aparecem no modo de ordenação em lista. */
+.controlos { display: none; }
+
+/* Modo de ordenação: lista compacta, uma linha por artigo. */
+.grelha.lista { display: flex; flex-direction: column; gap: 4px; }
+.grelha.lista .artigo {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 8px;
+  text-align: left;
+}
+.grelha.lista .foto, .grelha.lista .foto img { width: 48px; height: 48px; flex: none; }
+.grelha.lista .nome { flex: 1 1 auto; margin: 0; font-size: 14px; }
+.grelha.lista .familia { display: none; }
+.grelha.lista .ordem { flex: none; min-width: 170px; margin: 0; text-align: right; }
+.grelha.lista .controlos { display: flex; gap: 4px; flex: none; }
+.controlos button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  font: inherit;
+  cursor: pointer;
+}
+.controlos button:hover { border-color: var(--accent); }
+.artigo.selecionado { background: #fff1e6; border-color: var(--accent); }
+
+@media (max-width: 520px) {
+  /* No telemóvel: nome ao lado da foto, ordem e botões por baixo. */
+  .grelha.lista .artigo { flex-wrap: wrap; row-gap: 4px; }
+  .grelha.lista .nome { flex-basis: calc(100% - 60px); }
+  .grelha.lista .ordem { min-width: 0; flex: 1 1 auto; text-align: left; }
+}
 .grelha.a-ordenar .artigo img { pointer-events: none; }
 .artigo.a-arrastar { opacity: .35; }
 .artigo.mudou { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

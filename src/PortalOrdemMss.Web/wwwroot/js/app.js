@@ -76,28 +76,47 @@ function codigosNoEcra() {
   return [...el("grelha").children].map((n) => n.dataset.codigo);
 }
 
-function entrarEmOrdenar() {
+// Ao entrar no modo de ordenação carrega a família inteira (não só a
+// primeira página) e mostra-a em lista compacta, com botões para mover.
+async function entrarEmOrdenar() {
   if (!podeEntrarEmOrdenar()) return;
-  state.ordenar = { original: state.artigos.map((a) => ({ codigo: a.codigo, ordem: a.ordem || "" })), arrastados: new Set() };
-  el("grelha").classList.add("a-ordenar");
+  el("btn-ordenar").disabled = true;
+  el("estado").textContent = "A carregar a família inteira…";
+  let artigos;
+  try {
+    const params = new URLSearchParams({ familia: el("familia").value, todos: "true" });
+    artigos = await fetchJson(`/api/artigos?${params}`);
+  } catch (err) {
+    el("estado").textContent = err.message;
+    atualizarBotaoOrdenar();
+    return;
+  }
+
+  state.pedido++; // ignora qualquer pesquisa ainda a chegar
+  state.artigos = artigos;
+  state.offset = artigos.length;
+  el("grelha").replaceChildren(...artigos.map(buildCard));
+  el("mais").hidden = true;
+  el("estado").textContent = `${artigos.length} artigos`;
+
+  state.ordenar = { original: artigos.map((a) => ({ codigo: a.codigo, ordem: a.ordem || "" })), arrastados: new Set() };
+  el("grelha").classList.add("a-ordenar", "lista");
   [...el("grelha").children].forEach((n) => { n.draggable = true; });
   el("barra-ordenar").hidden = false;
   el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = true;
-  const maisPorCarregar = !el("mais").hidden;
-  state.ordenar.info = maisPorCarregar
-    ? `Arrasta os artigos para a nova posição. Só os ${state.artigos.length} artigos já carregados entram na troca.`
-    : "Arrasta os artigos para a nova posição.";
+  state.ordenar.info = "Arrasta, usa os botões ⤒ ↑ ↓ ⤓, ou clica num artigo e usa as setas do teclado.";
   el("ordenar-info").textContent = state.ordenar.info;
   marcarAlterados();
   atualizarBotaoOrdenar();
 }
 
 function sairDeOrdenar() {
+  clearTimeout(esperaPrevisao);
   state.ordenar = null;
-  el("grelha").classList.remove("a-ordenar");
+  el("grelha").classList.remove("a-ordenar", "lista");
   [...el("grelha").children].forEach((n) => {
     n.draggable = false;
-    n.classList.remove("mudou");
+    n.classList.remove("mudou", "selecionado");
     n.querySelector(".ordem").textContent = textoOrdem(n.dataset.ordem);
   });
   el("barra-ordenar").hidden = true;
@@ -131,10 +150,17 @@ el("grelha").addEventListener("dragstart", (e) => {
 el("grelha").addEventListener("dragover", (e) => {
   if (!arrastado) return;
   e.preventDefault();
+  // Desliza a página sozinha quando se arrasta perto do topo ou do fundo.
+  const margem = 80;
+  if (e.clientY < margem + 110) window.scrollBy(0, -18);
+  else if (e.clientY > window.innerHeight - margem) window.scrollBy(0, 18);
+
   const alvo = e.target.closest(".artigo");
   if (!alvo || alvo === arrastado) return;
   const r = alvo.getBoundingClientRect();
-  const depois = e.clientX > r.left + r.width / 2;
+  const depois = el("grelha").classList.contains("lista")
+    ? e.clientY > r.top + r.height / 2
+    : e.clientX > r.left + r.width / 2;
   alvo.parentNode.insertBefore(arrastado, depois ? alvo.nextSibling : alvo);
 });
 el("grelha").addEventListener("drop", (e) => e.preventDefault());
@@ -142,8 +168,59 @@ el("grelha").addEventListener("dragend", () => {
   if (!arrastado) return;
   arrastado.classList.remove("a-arrastar");
   arrastado = null;
+  aposMover();
+});
+
+// ---------- Mover com botões e teclado ----------
+
+function aposMover() {
   marcarAlterados();
   mostrarPrevisao();
+}
+
+function mover(card, destino) {
+  const grelha = el("grelha");
+  const itens = [...grelha.children];
+  const atual = itens.indexOf(card);
+  const alvo = Math.max(0, Math.min(itens.length - 1, destino));
+  if (atual < 0 || alvo === atual) return;
+  state.ordenar.arrastados.add(card.dataset.codigo);
+  card.remove();
+  const resto = [...grelha.children];
+  grelha.insertBefore(card, resto[alvo] || null);
+  selecionar(card);
+  card.scrollIntoView({ block: "nearest" });
+  aposMover();
+}
+
+function selecionar(card) {
+  el("grelha").querySelectorAll(".artigo.selecionado").forEach((n) => n.classList.remove("selecionado"));
+  if (card) card.classList.add("selecionado");
+}
+
+el("grelha").addEventListener("click", (e) => {
+  if (!state.ordenar) return;
+  const card = e.target.closest(".artigo");
+  if (!card) return;
+  const botao = e.target.closest("button[data-mover]");
+  if (!botao) {
+    selecionar(card);
+    return;
+  }
+  const i = [...el("grelha").children].indexOf(card);
+  const destinos = { topo: 0, cima: i - 1, baixo: i + 1, fim: Infinity };
+  mover(card, destinos[botao.dataset.mover]);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (!state.ordenar) return;
+  const card = el("grelha").querySelector(".artigo.selecionado");
+  if (!card) return;
+  const i = [...el("grelha").children].indexOf(card);
+  const destinos = { ArrowUp: i - 1, ArrowDown: i + 1, Home: 0, End: Infinity };
+  if (!(e.key in destinos)) return;
+  e.preventDefault();
+  mover(card, destinos[e.key]);
 });
 
 function pedidoOrdem() {
@@ -157,7 +234,14 @@ function textoOrdem(ordem) {
 // Pergunta ao servidor (sem gravar) que ordem os artigos arrastados vão
 // ter e mostra-a logo no cartão: "Ordem 0010 → 0030a".
 let pedidoPrevisao = 0;
-async function mostrarPrevisao() {
+let esperaPrevisao;
+function mostrarPrevisao() {
+  clearTimeout(esperaPrevisao);
+  esperaPrevisao = setTimeout(pedirPrevisao, 150);
+}
+
+async function pedirPrevisao() {
+  if (!state.ordenar) return;
   const pedido = ++pedidoPrevisao;
   const cards = [...el("grelha").children];
   try {

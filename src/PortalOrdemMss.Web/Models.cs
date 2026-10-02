@@ -30,6 +30,12 @@ public sealed class PortalOptions
     public bool PermitirReordenar { get; set; } = true;
 
     /// <summary>
+    /// Deixa ordenar a partir de outros PCs da rede local (IPs privados),
+    /// não só do próprio servidor. Só faz sentido com ListenUrl em 0.0.0.0.
+    /// </summary>
+    public bool PermitirEscritaNaRede { get; set; }
+
+    /// <summary>
     /// Pasta das fotos dos artigos (pode ser um caminho UNC, ex.
     /// \\servidor\partilha\imagens). O ficheiro procurado é o valor da
     /// coluna Imagem (CDU_MTImagem) ou, sem ele, o código do artigo.

@@ -132,17 +132,21 @@ public static class OrdemPlanner
             return null;
         }
 
-        // Primeiro lugar: baixa o último carácter do seguinte e acrescenta
-        // "z" (ex. A55023 -> A55022Z), para ficar logo antes dele.
+        // Primeiro lugar: baixa o último carácter que se pode baixar e
+        // acrescenta "z" (ex. A55023 -> A55022Z; 0020 -> 001z), para ficar
+        // logo antes dele.
         if (string.IsNullOrEmpty(seguinte))
         {
             return null;
         }
 
-        var ultimo = seguinte[^1];
-        if (ultimo is > '0' and <= '9' or > 'a' and <= 'z' or > 'A' and <= 'Z')
+        for (var i = seguinte.Length - 1; i >= 0; i--)
         {
-            return seguinte[..^1] + (char)(ultimo - 1) + Letra('z', seguinte);
+            var c = seguinte[i];
+            if (c is > '0' and <= '9' or > 'a' and <= 'z' or > 'A' and <= 'Z')
+            {
+                return seguinte[..i] + (char)(c - 1) + Letra('z', seguinte);
+            }
         }
 
         return null;

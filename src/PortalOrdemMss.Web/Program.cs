@@ -97,20 +97,23 @@ app.MapGet("/api/config", (HttpContext ctx, IOptionsMonitor<PortalOptions> opts)
         titulo = opts.CurrentValue.Titulo,
         demo = opts.CurrentValue.DemoMode,
         pageSize = opts.CurrentValue.PageSize,
-        podeReordenar = opts.CurrentValue.PermitirReordenar && IsWriteAllowed(ctx)
+        podeReordenar = opts.CurrentValue.PermitirReordenar && IsWriteAllowed(ctx, opts.CurrentValue)
     }));
 
 app.MapGet("/api/familias", async (IArtigoProvider data, CancellationToken ct) =>
     Results.Ok(await data.GetFamiliasAsync(ct)));
 
-app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, IArtigoProvider data,
+app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, bool? todos, IArtigoProvider data,
     IOptionsMonitor<PortalOptions> opts, CancellationToken ct) =>
 {
+    // todos=true: a família inteira de uma vez, para o modo de ordenação em
+    // lista (só com família escolhida, para não carregar o catálogo todo).
+    var familiaInteira = todos == true && !string.IsNullOrWhiteSpace(familia);
     var pesquisa = new PesquisaArtigos(
         (q ?? string.Empty).Trim(),
         (familia ?? string.Empty).Trim(),
-        Math.Max(0, offset ?? 0),
-        opts.CurrentValue.PageSize);
+        familiaInteira ? 0 : Math.Max(0, offset ?? 0),
+        familiaInteira ? MaxArtigosFamilia : opts.CurrentValue.PageSize);
     return Results.Ok(await data.SearchAsync(pesquisa, ct));
 });
 
@@ -132,7 +135,7 @@ app.MapPost("/api/ordem/previsao", (NovaOrdemRequest req) =>
 app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoProvider data,
     IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, CancellationToken ct) =>
 {
-    if (!opts.CurrentValue.PermitirReordenar || !IsWriteAllowed(ctx))
+    if (!opts.CurrentValue.PermitirReordenar || !IsWriteAllowed(ctx, opts.CurrentValue))
     {
         return Results.Json(new { error = "Não tens permissão para mudar a ordem a partir deste computador." }, statusCode: StatusCodes.Status403Forbidden);
     }
@@ -169,13 +172,19 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
 
 app.Run();
 
-// Escrever no Primavera só a partir do próprio servidor (loopback) ou com a
+// Escrever no Primavera só a partir do próprio servidor (loopback), de um
+// PC da rede local se Portal:PermitirEscritaNaRede estiver ligado, ou com a
 // chave da variável de ambiente MSS_PORTAL_ORDEM_ADMIN_KEY no cabeçalho
-// X-Admin-Key. Sem chave definida, pedidos remotos ficam bloqueados.
-static bool IsWriteAllowed(HttpContext ctx)
+// X-Admin-Key. Sem nada disto, pedidos remotos ficam bloqueados.
+static bool IsWriteAllowed(HttpContext ctx, PortalOptions opts)
 {
     var remote = ctx.Connection.RemoteIpAddress;
     if (remote is null || System.Net.IPAddress.IsLoopback(remote))
+    {
+        return true;
+    }
+
+    if (opts.PermitirEscritaNaRede && IsRedeLocal(remote))
     {
         return true;
     }
@@ -187,4 +196,25 @@ static bool IsWriteAllowed(HttpContext ctx)
             System.Text.Encoding.UTF8.GetBytes(key), System.Text.Encoding.UTF8.GetBytes(provided.ToString()));
 }
 
-public partial class Program;
+// Endereços privados IPv4 (10/8, 172.16/12, 192.168/16) e locais IPv6.
+static bool IsRedeLocal(System.Net.IPAddress ip)
+{
+    if (ip.IsIPv4MappedToIPv6)
+    {
+        ip = ip.MapToIPv4();
+    }
+
+    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+    {
+        return ip.IsIPv6LinkLocal || ip.IsIPv6UniqueLocal;
+    }
+
+    var b = ip.GetAddressBytes();
+    return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168);
+}
+
+public partial class Program
+{
+    // Limite de segurança para "a família inteira" no modo de ordenação.
+    private const int MaxArtigosFamilia = 3000;
+}

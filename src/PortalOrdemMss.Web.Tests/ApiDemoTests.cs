@@ -50,6 +50,18 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
     }
 
     [Fact]
+    public async Task Todos_devolve_a_familia_inteira_ignorando_a_pagina()
+    {
+        // Página de 5: com offset=3 só viriam 2 velas, com todos=true vêm as 5.
+        var velas = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=VEL&offset=3&todos=true");
+        Assert.Equal(new[] { "VEL001", "VEL002", "VEL003", "VEL004", "VEL005" }, velas!.Select(a => a.Codigo));
+
+        // Sem família, todos=true é ignorado (não carrega o catálogo inteiro).
+        var semFamilia = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?todos=true");
+        Assert.Equal(5, semFamilia!.Count);
+    }
+
+    [Fact]
     public async Task Filtra_por_familia_e_pesquisa()
     {
         var ceras = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER");

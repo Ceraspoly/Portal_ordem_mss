@@ -5,9 +5,9 @@ Catálogo com o que foi pedido: **foto do artigo (100×100), nome, família e CD
 ## Estado
 
 - Compila com o SDK .NET 10 (`dotnet build -c Release`, 0 avisos, 0 erros).
-- 31 testes a passar (`dotnet test`), incluindo a API em modo demonstração e a regra de reordenação.
-- Testado em modo demonstração no browser (desktop e telemóvel): a foto fica sempre em 100×100.
-- **Ainda não testado contra o SQL Server do Primavera** nem publicado em Windows.
+- 33 testes a passar (`dotnet test`), incluindo a API em modo demonstração e a regra de reordenação.
+- Testado em modo demonstração no browser (desktop e telemóvel), incluindo o modo de ordenação em lista.
+- Já corre no servidor da CERASPOLY com os dados reais do Primavera (leitura). O script de serviço `tools\ATUALIZAR-PORTAL.ps1` ainda não foi executado em Windows.
 
 ## Correr em desenvolvimento
 
@@ -46,15 +46,19 @@ Abre `http://127.0.0.1:5090`. Arranca em modo demonstração (12 artigos fictíc
 
 As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artigos anulados (`ArtigoAnulado`, `CDU_PS_ANULAR`) e ordenam por família e `CDU_MSS_ORDEM`. Só são aceites queries `SELECT` (`QuerySafety`) e os valores vão sempre como parâmetros. A única escrita é a da ordem (ver abaixo).
 
-## Mudar a ordem (arrastar e largar)
+## Mudar a ordem
 
 1. Escolher uma família (sem texto na pesquisa) e carregar em **Ordenar**.
-2. Arrastar os artigos para a nova posição. Os que mudaram ficam com contorno.
+2. A família inteira aparece numa lista compacta (até 3000 artigos), já sem "Carregar mais". Para mover um artigo:
+   - arrastar a linha (a página desliza sozinha quando se chega ao topo ou ao fundo do ecrã);
+   - botões ⤒ (topo), ↑ (subir), ↓ (descer), ⤓ (fim);
+   - clicar na linha e usar as setas ↑ ↓, `Home` e `End`.
+   Cada artigo mudado fica com contorno e mostra logo a ordem nova (`Ordem 0010 → 0030a`), sem gravar.
 3. **Guardar ordem**, confirmar.
 
 Regra de gravação (`Services/OrdemPlanner.cs`): **só o artigo arrastado muda**, e fica com o CDU_MSS_ORDEM do artigo que ficou antes dele mais um `a` (ex. arrastar `A55023` para depois de `B45223` grava `B45223A`; mantém maiúsculas se o valor só tiver maiúsculas).
 - Se esse valor já existir no seguinte (ex. já há `B45223A`), usa `B452230`, que fica entre os dois.
-- Arrastado para o primeiro lugar: baixa o último carácter do primeiro artigo e acrescenta `z` (`A55023` → `A55022Z`).
+- Arrastado para o primeiro lugar: baixa o último carácter do primeiro artigo que se possa baixar e acrescenta `z` (`A55023` → `A55022Z`, `0020` → `001z`).
 - Sem espaço possível (ex. anterior e seguinte ambos `CA0000A`): fica com o mesmo valor do anterior (no primeiro lugar, igual ao seguinte).
 
 Segurança da escrita no Primavera:
@@ -62,6 +66,7 @@ Segurança da escrita no Primavera:
 - Tudo numa transação: cada UPDATE tem de afetar exatamente 1 linha; se o valor mudou entretanto (0 linhas) ou a query apanha mais de uma, nada é gravado.
 - Cada alteração fica registada em `%ProgramData%\MSS\PortalOrdemMss\data\alteracoes-ordem.csv` (data; artigo; ordem anterior; ordem nova), para poder desfazer à mão.
 - Só aceita gravar a partir do próprio servidor, ou com a chave da variável de ambiente `MSS_PORTAL_ORDEM_ADMIN_KEY` no cabeçalho `X-Admin-Key`. `Portal:PermitirReordenar: false` desliga a função.
+- Para ordenar a partir de outro PC da rede: `Portal:ListenUrl` = `http://0.0.0.0:5090`, `Portal:PermitirEscritaNaRede` = `true` (só aceita IPs privados: 10.x, 172.16-31.x, 192.168.x) e abrir a porta na firewall (`-AbrirFirewall` no script). Qualquer pessoa nessa rede passa a poder gravar a ordem.
 - O utilizador SQL da connection string precisa de permissão de UPDATE na tabela `Artigo`.
 - O Portal de Encomendas Rápidas também ordena por CDU_MSS_ORDEM, por isso a nova ordem aparece lá também.
 
@@ -75,17 +80,24 @@ Ordem de procura (`ProductImageService`):
 
 O tamanho 100×100 é feito no browser (`object-fit: contain`, sem deformar), tal como no portal de encomendas. Se as fotos originais forem muito pesadas, o passo seguinte é gerar miniaturas no servidor.
 
-## Pôr em produção (Windows, ainda por validar)
+## Pôr em produção (serviço Windows)
+
+Uma vez, e depois sempre que houver uma versão nova, num PowerShell **como Administrador**:
 
 ```powershell
-dotnet publish src/PortalOrdemMss.Web -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "C:\Program Files\MSS\PortalOrdemMss\versions\1.0.0"
-sc.exe create MssPortalOrdem binPath= "C:\Program Files\MSS\PortalOrdemMss\versions\1.0.0\PortalOrdemMss.Web.exe" start= delayed-auto
-sc.exe failure MssPortalOrdem reset= 86400 actions= restart/5000/restart/10000/restart/60000
-Start-Service MssPortalOrdem
+cd C:\_dev\ordem
+powershell -ExecutionPolicy Bypass -File tools\ATUALIZAR-PORTAL.ps1
 ```
-- `delayed-auto` porque a pasta de fotos em rede pode ainda não estar disponível logo após um reboot (problema real no portal de encomendas). O arranque também não falha se a pasta não existir.
-- O serviço corre como LocalSystem: confirmar que essa conta consegue ler a partilha das fotos.
-- Os scripts `PUBLICAR-PRODUCAO.ps1` e `WATCHDOG-PORTAL.ps1` do portal de encomendas podem ser adaptados quando for para produção (guardar os `.ps1` em UTF-8 com BOM).
+
+O script (`tools\ATUALIZAR-PORTAL.ps1`) faz `git pull`, publica para `C:\Program Files\MSS\PortalOrdemMss\versions\<data-commit>`, pára o serviço `MssPortalOrdem`, aponta a junção `current` para a versão nova, cria o serviço se não existir e espera que `/health` responda. Depois disso o portal fica sempre ligado (também depois de reiniciar o servidor) e já não é preciso deixar nenhuma janela aberta.
+- Antes da primeira vez, fechar a janela com `dotnet run` (Ctrl+C): o script recusa se a porta estiver ocupada.
+- Precisa do runtime ASP.NET Core 10 no servidor (vem com o SDK que já lá está).
+- O serviço arranca em `delayed-auto` (a pasta das fotos em rede pode não estar pronta logo após um reboot) e reinicia sozinho se falhar depois de arrancar.
+- O serviço corre como LocalSystem: se as fotos estão numa partilha de rede (UNC), confirmar que a conta do computador tem leitura nessa partilha; senão as fotos aparecem como "sem foto".
+- O `settings.json` em `%ProgramData%\MSS\PortalOrdemMss\config` é o mesmo que o `dotnet run` já usava; o script nunca lhe toca.
+- Voltar à versão anterior: `Stop-Service MssPortalOrdem`, `cmd /c rmdir "C:\Program Files\MSS\PortalOrdemMss\current"`, `New-Item -ItemType Junction -Path "C:\Program Files\MSS\PortalOrdemMss\current" -Target "<pasta em versions>"`, `Start-Service MssPortalOrdem`.
+- `-AbrirFirewall` cria a regra de entrada para a porta 5090 (perfis domínio/privado).
+- O serviço é independente do `MssPortalEncomendas` (nome, porta e pastas diferentes).
 
 ## Estrutura
 
@@ -102,4 +114,5 @@ src/PortalOrdemMss.Web/
     AppPaths.cs               pasta persistente em ProgramData
   wwwroot/                    index.html, css/site.css, js/app.js (sem build)
 src/PortalOrdemMss.Web.Tests/ xUnit
+tools/ATUALIZAR-PORTAL.ps1   instalar/atualizar como serviço Windows
 ```

@@ -43,6 +43,15 @@ public class OrdemPlannerTests
     }
 
     [Fact]
+    public void Para_o_primeiro_lugar_quando_o_primeiro_acaba_em_zero()
+    {
+        var original = Lista(("Y", "0020"), ("Z", "0030"), ("X", "0040"));
+        var r = OrdemPlanner.Planear(original, ["X", "Y", "Z"], ["X"]);
+        Assert.Equal("001z", Assert.Single(r).Novo);
+        Assert.True(StringComparer.OrdinalIgnoreCase.Compare("001z", "0020") < 0);
+    }
+
+    [Fact]
     public void Dois_seguidos_depois_do_mesmo()
     {
         var original = Lista(("A", "10"), ("B", "20"), ("C", "30"), ("D", "40"));
