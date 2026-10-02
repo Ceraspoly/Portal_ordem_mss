@@ -42,6 +42,7 @@ Abre `http://127.0.0.1:5090`. Arranca em modo demonstração (12 artigos fictíc
 | `Portal:ProductImageFolder` | Pasta das fotos (pode ser UNC) |
 | `Portal:PageSize` | Artigos por página ("Carregar mais") |
 | `Sql:ArtigosQuery` | Tem de devolver `Codigo, Nome, Familia, FamiliaNome, Imagem, Ordem`; pode usar `@Search, @LikeSearch, @Familia, @Offset, @Limit` |
+| `Sql:ArtigosQuery` (opcional) | Se devolver também uma coluna `Loja` (ex. `a.CDU_xxx AS Loja`), os artigos com o visto ficam com rebordo vermelho. Os artigos mudados e ainda por gravar ficam a azul. |
 | `Sql:FamiliasQuery` | Tem de devolver `Codigo, Nome` |
 
 As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artigos anulados (`ArtigoAnulado`, `CDU_PS_ANULAR`) e ordenam só por `CDU_MSS_ORDEM` (depois pelo código), independentemente da família. Só são aceites queries `SELECT` (`QuerySafety`) e os valores vão sempre como parâmetros. A única escrita é a da ordem (ver abaixo).

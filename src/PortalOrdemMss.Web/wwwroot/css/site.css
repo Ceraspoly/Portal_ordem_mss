@@ -5,6 +5,8 @@
   --muted: #5c6475;
   --line: #dde1e8;
   --accent: #b5452b;
+  --loja: #e00000;
+  --mudou: #1f6feb;
 }
 
 * { box-sizing: border-box; }
@@ -156,7 +158,7 @@ main { padding: 20px; }
   cursor: pointer;
 }
 .controlos button:hover { border-color: var(--accent); }
-.artigo.selecionado { background: #fff1e6; border-color: var(--accent); }
+.artigo.selecionado { background: #eaf2ff; border-color: var(--mudou); }
 
 @media (max-width: 520px) {
   /* No telemóvel: nome ao lado da foto, ordem e botões por baixo. */
@@ -166,7 +168,12 @@ main { padding: 20px; }
 }
 .grelha.a-ordenar .artigo img { pointer-events: none; }
 .artigo.a-arrastar { opacity: .35; }
-.artigo.mudou { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+/* Mudou de sítio (ainda por gravar): azul, para não se confundir com o vermelho da loja. */
+.artigo.mudou { border-color: var(--mudou); box-shadow: 0 0 0 1px var(--mudou); }
+
+/* Artigos com o visto no CDU Loja: rebordo vermelho. */
+.artigo.loja { border-color: var(--loja); box-shadow: 0 0 0 2px var(--loja); }
+.artigo.loja.mudou { box-shadow: 0 0 0 2px var(--loja), 0 0 0 5px var(--mudou); }
 
 .mais {
   display: block;

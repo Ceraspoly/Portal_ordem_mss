@@ -69,6 +69,13 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
     }
 
     [Fact]
+    public async Task Artigos_com_cdu_loja_vem_marcados()
+    {
+        var todos = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?todos=true"))!;
+        Assert.Equal(new[] { "ACE003", "CER001", "VEL002" }, todos.Where(a => a.Loja).Select(a => a.Codigo).Order());
+    }
+
+    [Fact]
     public async Task Filtra_por_familia_e_pesquisa()
     {
         var ceras = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER");

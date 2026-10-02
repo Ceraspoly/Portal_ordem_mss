@@ -26,6 +26,9 @@ public sealed class SqlArtigoProvider(IOptionsMonitor<SqlOptions> options, Produ
         int iCodigo = reader.GetOrdinal("Codigo"), iNome = reader.GetOrdinal("Nome"),
             iFamilia = reader.GetOrdinal("Familia"), iFamiliaNome = reader.GetOrdinal("FamiliaNome"),
             iImagem = reader.GetOrdinal("Imagem"), iOrdem = reader.GetOrdinal("Ordem");
+        // Coluna opcional: se a query devolver "Loja", os artigos marcados
+        // ficam com rebordo vermelho. Sem ela, nada muda.
+        var iLoja = Ordinal(reader, "Loja");
 
         var result = new List<Artigo>();
         while (await reader.ReadAsync(ct))
@@ -38,11 +41,34 @@ public sealed class SqlArtigoProvider(IOptionsMonitor<SqlOptions> options, Produ
                 Text(reader, iFamiliaNome),
                 images.ResolveImageUrl(Text(reader, iImagem), codigo),
                 // CDU_MSS_ORDEM é texto (ex. "AB0005A5"), não número: a ordenação fica no SQL.
-                Text(reader, iOrdem)));
+                Text(reader, iOrdem),
+                iLoja >= 0 && Marcado(reader.GetValue(iLoja))));
         }
 
         return result;
     }
+
+    private static int Ordinal(System.Data.Common.DbDataReader reader, string nome)
+    {
+        for (var i = 0; i < reader.FieldCount; i++)
+        {
+            if (string.Equals(reader.GetName(i), nome, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    // Visto do Primavera: bit 1/true, ou texto "1"/"S"/"Sim"/"true".
+    internal static bool Marcado(object valor) => valor switch
+    {
+        null or DBNull => false,
+        bool b => b,
+        byte or short or int or long or decimal => Convert.ToDecimal(valor) != 0,
+        _ => valor.ToString()!.Trim().ToUpperInvariant() is "1" or "S" or "SIM" or "TRUE" or "Y",
+    };
 
     public async Task<IReadOnlyList<Familia>> GetFamiliasAsync(CancellationToken ct)
     {

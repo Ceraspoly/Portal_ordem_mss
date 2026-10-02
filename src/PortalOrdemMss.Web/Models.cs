@@ -1,7 +1,8 @@
 namespace PortalOrdemMss.Web;
 
 /// <summary>Um artigo tal como aparece no catálogo: só foto, nome, família e ordem.</summary>
-public sealed record Artigo(string Codigo, string Nome, string Familia, string FamiliaNome, string ImagemUrl, string Ordem);
+// Loja: o artigo tem o visto no CDU de loja (coluna opcional "Loja" na query).
+public sealed record Artigo(string Codigo, string Nome, string Familia, string FamiliaNome, string ImagemUrl, string Ordem, bool Loja = false);
 
 public sealed record Familia(string Codigo, string Nome);
 

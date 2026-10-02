@@ -39,6 +39,8 @@ function buildCard(artigo) {
   node.title = artigo.codigo;
   node.dataset.codigo = artigo.codigo;
   node.dataset.ordem = artigo.ordem || "";
+  node.classList.toggle("loja", artigo.loja === true);
+  if (artigo.loja) node.title += " · CDU Loja";
   return node;
 }
 
