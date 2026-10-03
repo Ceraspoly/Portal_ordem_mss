@@ -56,6 +56,12 @@ public sealed class SqlOptions
     /// </summary>
     public string ArtigosQuery { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Opcional: devolve a coluna Codigo dos artigos com o visto no CDU de
+    /// loja (rebordo vermelho). Se falhar, o portal continua sem rebordos.
+    /// </summary>
+    public string LojaQuery { get; set; } = string.Empty;
+
     /// <summary>Tem de devolver as colunas Codigo e Nome.</summary>
     public string FamiliasQuery { get; set; } = string.Empty;
 

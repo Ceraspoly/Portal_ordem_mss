@@ -7,6 +7,7 @@ public class QuerySafetyTests
     [Theory]
     [InlineData("SELECT a.Artigo AS Codigo FROM Artigo a")]
     [InlineData("  select 1 AS Codigo")]
+    [InlineData("SELECT Artigo AS Codigo FROM PRIMSS2CLO.dbo.Artigo WHERE CAST(CDU_ArtigoLoja AS nvarchar(10)) IN ('1', 'S', 'True')")]
     public void Aceita_select(string sql) => Assert.True(QuerySafety.IsReadOnlySelect(sql, out _));
 
     [Theory]

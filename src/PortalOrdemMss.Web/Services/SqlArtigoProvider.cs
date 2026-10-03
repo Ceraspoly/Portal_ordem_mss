@@ -8,8 +8,14 @@ namespace PortalOrdemMss.Web.Services;
 /// Lê artigos e famílias do Primavera com as queries do settings.json.
 /// Só SELECT (QuerySafety) e valores sempre parametrizados.
 /// </summary>
-public sealed class SqlArtigoProvider(IOptionsMonitor<SqlOptions> options, ProductImageService images) : IArtigoProvider
+public sealed class SqlArtigoProvider(IOptionsMonitor<SqlOptions> options, ProductImageService images,
+    ILogger<SqlArtigoProvider> logger) : IArtigoProvider
 {
+    // Códigos com o visto no CDU de loja, relidos no máximo a cada minuto.
+    private static readonly TimeSpan LojaTtl = TimeSpan.FromMinutes(1);
+    private readonly SemaphoreSlim _lojaGate = new(1, 1);
+    private (DateTime LidoUtc, string Query, HashSet<string> Codigos)? _loja;
+
     public async Task<IReadOnlyList<Artigo>> SearchAsync(PesquisaArtigos pesquisa, CancellationToken ct)
     {
         var opts = options.CurrentValue;
@@ -45,7 +51,64 @@ public sealed class SqlArtigoProvider(IOptionsMonitor<SqlOptions> options, Produ
                 iLoja >= 0 && Marcado(reader.GetValue(iLoja))));
         }
 
+        if (result.Count > 0)
+        {
+            var loja = await CodigosLojaAsync(opts, ct);
+            for (var i = 0; i < result.Count; i++)
+            {
+                if (!result[i].Loja && loja.Contains(result[i].Codigo))
+                {
+                    result[i] = result[i] with { Loja = true };
+                }
+            }
+        }
+
         return result;
+    }
+
+    // Best-effort: se a LojaQuery falhar (ex. campo com outro nome), regista
+    // um aviso e continua sem rebordos, em vez de partir a listagem.
+    private async Task<HashSet<string>> CodigosLojaAsync(SqlOptions opts, CancellationToken ct)
+    {
+        var sql = opts.LojaQuery?.Trim() ?? string.Empty;
+        if (sql.Length == 0)
+        {
+            return [];
+        }
+
+        await _lojaGate.WaitAsync(ct);
+        try
+        {
+            if (_loja is { } c && c.Query == sql && DateTime.UtcNow - c.LidoUtc < LojaTtl)
+            {
+                return c.Codigos;
+            }
+
+            var codigos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                await using var connection = await OpenAsync(opts, ct);
+                await using var command = CreateCommand(connection, opts, sql);
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                QuerySafety.RequireColumns(reader, "Codigo");
+                var iCodigo = reader.GetOrdinal("Codigo");
+                while (await reader.ReadAsync(ct))
+                {
+                    codigos.Add(Text(reader, iCodigo));
+                }
+            }
+            catch (Exception ex) when (ex is SqlException or InvalidOperationException)
+            {
+                logger.LogWarning(ex, "Sql:LojaQuery falhou; os artigos de loja ficam sem rebordo vermelho.");
+            }
+
+            _loja = (DateTime.UtcNow, sql, codigos);
+            return codigos;
+        }
+        finally
+        {
+            _lojaGate.Release();
+        }
     }
 
     private static int Ordinal(System.Data.Common.DbDataReader reader, string nome)

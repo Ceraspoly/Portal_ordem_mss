@@ -42,6 +42,7 @@ Abre `http://127.0.0.1:5090`. Arranca em modo demonstração (12 artigos fictíc
 | `Portal:ProductImageFolder` | Pasta das fotos (pode ser UNC) |
 | `Portal:PageSize` | Artigos por página ("Carregar mais") |
 | `Sql:ArtigosQuery` | Tem de devolver `Codigo, Nome, Familia, FamiliaNome, Imagem, Ordem`; pode usar `@Search, @LikeSearch, @Familia, @Offset, @Limit` |
+| `Sql:LojaQuery` | Códigos (`Codigo`) dos artigos com rebordo vermelho. Por omissão: os que têm o visto em `CDU_ArtigoLoja`. Se a query falhar, o portal continua a funcionar, só sem rebordos (aviso no log). |
 | `Sql:ArtigosQuery` (opcional) | Se devolver também uma coluna `Loja` (ex. `a.CDU_xxx AS Loja`), os artigos com o visto ficam com rebordo vermelho. Os artigos mudados e ainda por gravar ficam a azul. |
 | `Sql:FamiliasQuery` | Tem de devolver `Codigo, Nome` |
 
