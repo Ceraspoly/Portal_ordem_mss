@@ -37,6 +37,13 @@ public sealed class PortalOptions
     public bool PermitirEscritaNaRede { get; set; }
 
     /// <summary>
+    /// Nomes extra (além de IPs, localhost e o nome do servidor) pelos quais
+    /// se pode abrir o portal para gravar, ex. "portal.ceraspoly.local".
+    /// Protege contra DNS rebinding.
+    /// </summary>
+    public string[] HostsPermitidos { get; set; } = [];
+
+    /// <summary>
     /// Pasta das fotos dos artigos (pode ser um caminho UNC, ex.
     /// \\servidor\partilha\imagens). O ficheiro procurado é o valor da
     /// coluna Imagem (CDU_MTImagem) ou, sem ele, o código do artigo.

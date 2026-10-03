@@ -1,3 +1,5 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using PortalOrdemMss.Web;
 using PortalOrdemMss.Web.Services;
@@ -29,6 +31,28 @@ builder.Services.AddSingleton(new OrdemAuditLog(Path.Combine(rootDirectory, "dat
 builder.Services.AddResponseCompression(o => o.EnableForHttps = true);
 builder.Services.AddHealthChecks();
 
+// Sem cabeçalho "Server: Kestrel" e com limite ao tamanho dos pedidos (o
+// maior é a ordem de 5000 artigos, bem abaixo de 4 MB).
+builder.WebHost.ConfigureKestrel(k =>
+{
+    k.AddServerHeader = false;
+    k.Limits.MaxRequestBodySize = 4 * 1024 * 1024;
+});
+
+// Limite de pedidos por IP: geral na API e mais apertado para gravar.
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.OnRejected = async (ctx, ct) =>
+        await ctx.HttpContext.Response.WriteAsJsonAsync(new { error = "Demasiados pedidos. Espera um minuto e tenta de novo." }, ct);
+    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        ctx.Request.Path.StartsWithSegments("/api")
+            ? RateLimitPartition.GetFixedWindowLimiter(IpDe(ctx), _ => new FixedWindowRateLimiterOptions { PermitLimit = 1200, Window = TimeSpan.FromMinutes(1) })
+            : RateLimitPartition.GetNoLimiter("estaticos"));
+    o.AddPolicy("gravar", ctx => RateLimitPartition.GetFixedWindowLimiter(IpDe(ctx),
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1) }));
+});
+
 var listenUrl = builder.Configuration["Portal:ListenUrl"];
 if (!string.IsNullOrWhiteSpace(listenUrl) && string.IsNullOrWhiteSpace(builder.Configuration["urls"]))
 {
@@ -37,7 +61,38 @@ if (!string.IsNullOrWhiteSpace(listenUrl) && string.IsNullOrWhiteSpace(builder.C
 
 var app = builder.Build();
 
+// Cabeçalhos de segurança: sem ser metido noutra página (clickjacking),
+// sem adivinhar tipos de ficheiro e só scripts/estilos do próprio portal.
+// As fotos podem vir de um URL http(s) do Primavera, por isso img-src aceita-os.
+app.Use(async (ctx, next) =>
+{
+    var h = ctx.Response.Headers;
+    h["X-Content-Type-Options"] = "nosniff";
+    h["X-Frame-Options"] = "DENY";
+    h["Referrer-Policy"] = "no-referrer";
+    h["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: http: https:; script-src 'self'; style-src 'self'; " +
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+    await next();
+});
+
 app.UseResponseCompression();
+app.UseRateLimiter();
+
+// Pedidos que escrevem (POST em /api) só vindos do próprio portal: recusa
+// pedidos de outros sites (CSRF) e nomes de servidor desconhecidos (DNS
+// rebinding), antes de qualquer outra verificação.
+app.Use(async (ctx, next) =>
+{
+    if (HttpMethods.IsPost(ctx.Request.Method) && ctx.Request.Path.StartsWithSegments("/api")
+        && !IsMesmaOrigem(ctx, ctx.RequestServices.GetRequiredService<IOptionsMonitor<PortalOptions>>().CurrentValue))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await ctx.Response.WriteAsJsonAsync(new { error = "Pedido recusado: não veio do próprio portal." });
+        return;
+    }
+
+    await next();
+});
 
 // Erros em /api sempre em JSON (o fetch do front-end não sabe ler uma
 // página de erro HTML).
@@ -128,6 +183,11 @@ app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, bool?
 // Mostra, sem gravar nada, que CDU_MSS_ORDEM cada artigo arrastado vai ter.
 app.MapPost("/api/ordem/previsao", (NovaOrdemRequest req) =>
 {
+    if (ValidarPedido(req) is { } invalido)
+    {
+        return Results.BadRequest(new { error = invalido });
+    }
+
     try
     {
         var alteracoes = OrdemPlanner.Planear(req.Original ?? [], req.Nova ?? [], req.Arrastados);
@@ -148,6 +208,11 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
         return Results.Json(new { error = "Não tens permissão para mudar a ordem a partir deste computador." }, statusCode: StatusCodes.Status403Forbidden);
     }
 
+    if (ValidarPedido(req) is { } invalido)
+    {
+        return Results.BadRequest(new { error = invalido });
+    }
+
     IReadOnlyList<AlteracaoOrdem> alteracoes;
     try
     {
@@ -156,6 +221,13 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
     catch (ArgumentException ex)
     {
         return Results.BadRequest(new { error = ex.Message });
+    }
+
+    // O parâmetro SQL tem tamanho fixo: um valor maior seria cortado sem
+    // aviso, por isso recusa antes de gravar.
+    if (alteracoes.FirstOrDefault(a => a.Novo.Length > MaxTamanhoTexto) is { } longo)
+    {
+        return Results.BadRequest(new { error = $"A nova ordem do artigo {longo.Codigo} ficaria demasiado comprida. Corrige a ordem desses artigos no Primavera." });
     }
 
     if (alteracoes.Count == 0)
@@ -194,7 +266,7 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
     audit.Registar(alteracoes, opts.CurrentValue.DemoMode ? $"demo {origem}" : origem);
     app.Logger.LogInformation("Ordem gravada para {Count} artigos a partir de {Origem}.", alteracoes.Count, origem);
     return Results.Ok(new { gravados = alteracoes.Count });
-});
+}).RequireRateLimiting("gravar");
 
 app.Run();
 
@@ -222,6 +294,64 @@ static bool IsWriteAllowed(HttpContext ctx, PortalOptions opts)
             System.Text.Encoding.UTF8.GetBytes(key), System.Text.Encoding.UTF8.GetBytes(provided.ToString()));
 }
 
+static string IpDe(HttpContext ctx) => ctx.Connection.RemoteIpAddress?.ToString() ?? "desconhecido";
+
+// Limites ao pedido de ordem: número de artigos e tamanho dos textos (iguais
+// aos parâmetros SQL), para não aceitar pedidos enormes nem valores cortados.
+static string? ValidarPedido(NovaOrdemRequest req)
+{
+    var original = req.Original ?? [];
+    var nova = req.Nova ?? [];
+    var arrastados = req.Arrastados ?? [];
+    if (original.Count > MaxArtigosOrdenar || nova.Count > MaxArtigosOrdenar || arrastados.Count > MaxArtigosOrdenar)
+    {
+        return $"Demasiados artigos num só pedido (máximo {MaxArtigosOrdenar}).";
+    }
+
+    if (original.Any(a => a is null || string.IsNullOrWhiteSpace(a.Codigo) || a.Codigo.Length > MaxTamanhoTexto
+            || (a.Ordem?.Length ?? 0) > MaxTamanhoTexto)
+        || nova.Concat(arrastados).Any(c => string.IsNullOrWhiteSpace(c) || c.Length > MaxTamanhoTexto)
+        || (req.Familia?.Length ?? 0) > 50)
+    {
+        return "Pedido inválido: código ou ordem vazios ou demasiado compridos.";
+    }
+
+    return null;
+}
+
+// Um POST só é aceite se o cabeçalho Origin (quando o browser o manda) for
+// o próprio portal e o nome usado para o abrir for um IP, localhost, o nome
+// deste servidor ou um dos Portal:HostsPermitidos.
+static bool IsMesmaOrigem(HttpContext ctx, PortalOptions opts)
+{
+    var host = ctx.Request.Host;
+    if (!host.HasValue)
+    {
+        return false;
+    }
+
+    var nome = host.Host.Trim('[', ']');
+    var maquina = Environment.MachineName;
+    var hostConhecido = System.Net.IPAddress.TryParse(nome, out _)
+        || nome.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || nome.Equals(maquina, StringComparison.OrdinalIgnoreCase)
+        || nome.StartsWith(maquina + ".", StringComparison.OrdinalIgnoreCase)
+        || opts.HostsPermitidos.Any(h => nome.Equals(h, StringComparison.OrdinalIgnoreCase));
+    if (!hostConhecido)
+    {
+        return false;
+    }
+
+    var origin = ctx.Request.Headers.Origin.ToString();
+    if (origin.Length == 0)
+    {
+        return true; // sem Origin: não é um pedido de outro site feito pelo browser
+    }
+
+    return Uri.TryCreate(origin, UriKind.Absolute, out var o)
+        && string.Equals(o.Authority, host.Value, StringComparison.OrdinalIgnoreCase);
+}
+
 // Endereços privados IPv4 (10/8, 172.16/12, 192.168/16) e locais IPv6.
 static bool IsRedeLocal(System.Net.IPAddress ip)
 {
@@ -243,4 +373,7 @@ public partial class Program
 {
     // Limite de segurança para carregar tudo de uma vez no modo de ordenação.
     private const int MaxArtigosOrdenar = 5000;
+
+    // Igual ao tamanho dos parâmetros @Codigo/@Ordem/@OrdemAnterior.
+    private const int MaxTamanhoTexto = 100;
 }

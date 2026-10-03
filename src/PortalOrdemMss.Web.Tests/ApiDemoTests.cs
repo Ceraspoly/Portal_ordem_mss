@@ -76,6 +76,51 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
     }
 
     [Fact]
+    public async Task Recusa_gravar_vindo_de_outro_site()
+    {
+        var pedido = new HttpRequestMessage(HttpMethod.Post, "/api/ordem")
+        {
+            Content = JsonContent.Create(new NovaOrdemRequest([new ArtigoOrdem("VEL001", "0010")], ["VEL001"], []))
+        };
+        pedido.Headers.Add("Origin", "http://site-malicioso.example");
+        var r = await _client.SendAsync(pedido);
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task Recusa_gravar_com_nome_de_servidor_desconhecido()
+    {
+        var pedido = new HttpRequestMessage(HttpMethod.Post, "/api/ordem/previsao")
+        {
+            Content = JsonContent.Create(new NovaOrdemRequest([new ArtigoOrdem("VEL001", "0010")], ["VEL001"], []))
+        };
+        pedido.Headers.Host = "atacante.example:5090";
+        var r = await _client.SendAsync(pedido);
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task Recusa_pedidos_demasiado_grandes_ou_com_textos_compridos()
+    {
+        var muitos = Enumerable.Range(0, 5001).Select(i => new ArtigoOrdem($"X{i}", "1")).ToList();
+        var r1 = await _client.PostAsJsonAsync("/api/ordem/previsao", new NovaOrdemRequest(muitos, muitos.Select(a => a.Codigo).ToList(), []));
+        Assert.Equal(HttpStatusCode.BadRequest, r1.StatusCode);
+
+        var longo = new string('A', 101);
+        var r2 = await _client.PostAsJsonAsync("/api/ordem", new NovaOrdemRequest([new ArtigoOrdem(longo, "1")], [longo], []));
+        Assert.Equal(HttpStatusCode.BadRequest, r2.StatusCode);
+    }
+
+    [Fact]
+    public async Task Respostas_tem_cabecalhos_de_seguranca()
+    {
+        var r = await _client.GetAsync("/");
+        Assert.Equal("DENY", r.Headers.GetValues("X-Frame-Options").Single());
+        Assert.Equal("nosniff", r.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Contains("frame-ancestors 'none'", r.Headers.GetValues("Content-Security-Policy").Single());
+    }
+
+    [Fact]
     public async Task Filtra_por_familia_e_pesquisa()
     {
         var ceras = await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=CER");

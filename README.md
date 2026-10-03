@@ -73,6 +73,8 @@ Segurança da escrita no Primavera:
 - Só aceita gravar a partir do próprio servidor, ou com a chave da variável de ambiente `MSS_PORTAL_ORDEM_ADMIN_KEY` no cabeçalho `X-Admin-Key`. `Portal:PermitirReordenar: false` desliga a função.
 - Para abrir e ordenar a partir de outro PC da rede: correr o script com `-Rede`. Põe `Portal:ListenUrl` = `http://0.0.0.0:5090` e `Portal:PermitirEscritaNaRede` = `true` no `settings.json` (com cópia `settings.json.bak-<data>` antes) e abre a porta na firewall. Só aceita gravar de IPs privados (10.x, 172.16-31.x, 192.168.x); qualquer pessoa nessa rede passa a poder gravar a ordem. Para voltar a só ver na rede, pôr `PermitirEscritaNaRede` a `false` (relido sem reiniciar).
 - O utilizador SQL da connection string precisa de permissão de UPDATE na tabela `Artigo`.
+- Proteções da API (ver `docs/AUDITORIA_SEGURANCA.md`): pedidos POST de outros sites (CSRF) ou com um nome de servidor desconhecido (DNS rebinding) são recusados; para usar um nome DNS próprio, acrescentá-lo a `Portal:HostsPermitidos`. Limite de 20 gravações e 1200 pedidos à API por minuto e por IP, pedidos até 4 MB, cabeçalhos CSP/X-Frame-Options/nosniff.
+- O script de instalação deixa a pasta `config` (que tem a password do SQL) legível só pelo sistema e pelos Administradores.
 - O Portal de Encomendas Rápidas também ordena por CDU_MSS_ORDEM, por isso a nova ordem aparece lá também.
 
 ## Fotos

@@ -126,6 +126,15 @@ if ($Rede) {
     $AbrirFirewall = $true
 }
 
+# O settings.json tem a password do SQL: só o sistema (o serviço) e os
+# Administradores o podem ler. SIDs em vez de nomes, para funcionar com o
+# Windows em português ("Administradores").
+Passo "A proteger a pasta de configuração (password do SQL)"
+$pastaConfigAcl = Join-Path $env:ProgramData "MSS\PortalOrdemMss\config"
+New-Item -ItemType Directory -Path $pastaConfigAcl -Force | Out-Null
+icacls $pastaConfigAcl /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T /Q | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host "Aviso: não consegui restringir as permissões de $pastaConfigAcl." -ForegroundColor Yellow }
+
 if ($AbrirFirewall) {
     $regra = "Portal Ordem MSS ($Porta)"
     if (-not (Get-NetFirewallRule -DisplayName $regra -ErrorAction SilentlyContinue)) {
