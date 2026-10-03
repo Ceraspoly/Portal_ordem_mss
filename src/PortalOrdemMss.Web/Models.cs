@@ -16,7 +16,8 @@ public sealed record AlteracaoOrdem(string Codigo, string Anterior, string Novo)
 /// CDU_MSS_ORDEM que tinham), os códigos na nova ordem e os códigos que o
 /// utilizador arrastou (só esses mudam de valor).
 /// </summary>
-public sealed record NovaOrdemRequest(List<ArtigoOrdem>? Original, List<string>? Nova, List<string>? Arrastados, string? Familia = null);
+public sealed record NovaOrdemRequest(List<ArtigoOrdem>? Original, List<string>? Nova, List<string>? Arrastados, string? Familia = null,
+    bool Desempatar = false, List<string>? Selecao = null);
 
 public sealed record ArtigoOrdem(string Codigo, string Ordem);
 

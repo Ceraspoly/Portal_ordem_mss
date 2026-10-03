@@ -58,6 +58,7 @@ As queries por omissão leem `PRIMSS2CLO.dbo.Artigo` + `Familias`, excluem artig
    - **↪ A seguir a…**: escrever o código ou parte do nome de outro artigo e o artigo vai logo para a seguir a esse (ou "Para o início").
    - **Vários de uma vez**: Ctrl+clique para escolher vários, Shift+clique para escolher um intervalo (Esc limpa). Arrastar, os botões, as setas e "A seguir a…" movem os selecionados todos juntos, pela ordem em que estavam. Cada um fica com o valor do anterior + `a` (`0040a`, `0040aa`…).
    - **Ordenar seleção por nome**: põe os selecionados por ordem alfabética nos lugares que já ocupavam (números pela ordem natural: "7 cm" antes de "20 cm"). Aparece em pré-visualização; só grava com "Guardar ordem".
+   - **Desempatar iguais**: artigos seguidos com o mesmo valor (ex. 10 com `ab011`) ficam `ab011a`, `ab011b`, … `ab011j` pela ordem do ecrã (depois do `z` continua `za`, `zb`…). Primeiro põem-se pela ordem certa (um artigo mudado dentro do grupo continua no grupo) e depois carrega-se no botão. Com artigos selecionados, só desempata os grupos desses; sem seleção, todos. Recusa se o último valor passasse à frente do artigo seguinte.
    No topo há **Quadrados / Lista** para mudar a vista (quadrados pequenos para arrastar, ou linhas com todos os botões); a escolha fica lembrada no browser.
    Cada artigo mudado fica com contorno e mostra logo a ordem nova (`Ordem 0010 → 0030a`), sem gravar.
 3. **Guardar ordem**, confirmar.

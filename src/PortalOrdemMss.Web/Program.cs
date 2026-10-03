@@ -221,7 +221,7 @@ app.MapPost("/api/ordem/previsao", (NovaOrdemRequest req) =>
 
     try
     {
-        var alteracoes = OrdemPlanner.Planear(req.Original ?? [], req.Nova ?? [], req.Arrastados);
+        var alteracoes = OrdemPlanner.Planear(req.Original ?? [], req.Nova ?? [], req.Arrastados, req.Desempatar, req.Selecao);
         return Results.Ok(alteracoes);
     }
     catch (ArgumentException ex)
@@ -247,7 +247,7 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
     IReadOnlyList<AlteracaoOrdem> alteracoes;
     try
     {
-        alteracoes = OrdemPlanner.Planear(req.Original ?? [], req.Nova ?? [], req.Arrastados);
+        alteracoes = OrdemPlanner.Planear(req.Original ?? [], req.Nova ?? [], req.Arrastados, req.Desempatar, req.Selecao);
     }
     catch (ArgumentException ex)
     {
@@ -267,7 +267,9 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
     }
 
     var familia = (req.Familia ?? "").Trim();
-    var descricao = $"{alteracoes.Count} artigo(s) mudado(s) de sítio";
+    var descricao = req.Desempatar
+        ? $"{alteracoes.Count} artigo(s) desempatado(s) ou mudado(s) de sítio"
+        : $"{alteracoes.Count} artigo(s) mudado(s) de sítio";
     return await GravarComCopia(ctx, data, opts.CurrentValue, audit, historico, familia, alteracoes, descricao, null, ct);
 }).RequireRateLimiting("gravar");
 
@@ -430,14 +432,16 @@ static string? ValidarPedido(NovaOrdemRequest req)
     var original = req.Original ?? [];
     var nova = req.Nova ?? [];
     var arrastados = req.Arrastados ?? [];
-    if (original.Count > MaxArtigosOrdenar || nova.Count > MaxArtigosOrdenar || arrastados.Count > MaxArtigosOrdenar)
+    var selecao = req.Selecao ?? [];
+    if (original.Count > MaxArtigosOrdenar || nova.Count > MaxArtigosOrdenar || arrastados.Count > MaxArtigosOrdenar
+        || selecao.Count > MaxArtigosOrdenar)
     {
         return $"Demasiados artigos num só pedido (máximo {MaxArtigosOrdenar}).";
     }
 
     if (original.Any(a => a is null || string.IsNullOrWhiteSpace(a.Codigo) || a.Codigo.Length > MaxTamanhoTexto
             || (a.Ordem?.Length ?? 0) > MaxTamanhoTexto)
-        || nova.Concat(arrastados).Any(c => string.IsNullOrWhiteSpace(c) || c.Length > MaxTamanhoTexto)
+        || nova.Concat(arrastados).Concat(selecao).Any(c => string.IsNullOrWhiteSpace(c) || c.Length > MaxTamanhoTexto)
         || (req.Familia?.Length ?? 0) > 50)
     {
         return "Pedido inválido: código ou ordem vazios ou demasiado compridos.";

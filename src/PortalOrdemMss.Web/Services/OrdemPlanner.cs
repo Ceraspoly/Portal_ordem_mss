@@ -15,8 +15,14 @@ public static class OrdemPlanner
     // distinguir maiúsculas): dígitos antes de letras.
     private static readonly StringComparer Cmp = StringComparer.OrdinalIgnoreCase;
 
+    /// <param name="desempatar">
+    /// Também desempata artigos seguidos com o mesmo valor (pedido do Bruno,
+    /// 2026-10-03): 10 artigos com "ab011" ficam "ab011a", "ab011b"… pela
+    /// ordem do ecrã. Com <paramref name="selecao"/>, só os grupos com algum
+    /// artigo selecionado; sem seleção, todos os grupos.
+    /// </param>
     public static IReadOnlyList<AlteracaoOrdem> Planear(IReadOnlyList<ArtigoOrdem> original, IReadOnlyList<string> nova,
-        IReadOnlyCollection<string>? arrastados = null)
+        IReadOnlyCollection<string>? arrastados = null, bool desempatar = false, IReadOnlyCollection<string>? selecao = null)
     {
         if (original.Count == 0)
         {
@@ -57,7 +63,30 @@ public static class OrdemPlanner
             }
         }
 
-        var alteracoes = new List<AlteracaoOrdem>();
+        // Ao desempatar, um artigo mudado de sítio dentro do próprio grupo de
+        // iguais (ex. trocar dois "ab011") fica no grupo com o valor que tem,
+        // para ser desempatado pela ordem do ecrã em vez de sair do grupo.
+        if (desempatar)
+        {
+            var fixosValores = (string?[])valores.Clone();
+            for (var i = 0; i < nova.Count; i++)
+            {
+                if (fixosValores[i] is not null)
+                {
+                    continue;
+                }
+
+                var proprio = porCodigo[nova[i]].Ordem;
+                var antes = fixosValores.Take(i).LastOrDefault(v => v is not null);
+                var depois = fixosValores.Skip(i + 1).FirstOrDefault(v => v is not null);
+                var noGrupo = Cmp.Equals(proprio, antes) || Cmp.Equals(proprio, depois);
+                if (noGrupo && (antes is null || Cmp.Compare(antes, proprio) <= 0) && (depois is null || Cmp.Compare(proprio, depois) <= 0))
+                {
+                    valores[i] = proprio;
+                }
+            }
+        }
+
         for (var i = 0; i < nova.Count; i++)
         {
             if (valores[i] is not null)
@@ -86,14 +115,63 @@ public static class OrdemPlanner
                 ?? throw new ArgumentException($"Não foi possível calcular a ordem do artigo {artigo.Codigo}.");
 
             valores[i] = novo;
-            if (!string.Equals(novo, artigo.Ordem, StringComparison.Ordinal))
+        }
+
+        if (desempatar)
+        {
+            Desempatar(nova, valores!, new HashSet<string>(selecao ?? [], StringComparer.OrdinalIgnoreCase));
+        }
+
+        var alteracoes = new List<AlteracaoOrdem>();
+        for (var i = 0; i < nova.Count; i++)
+        {
+            var artigo = porCodigo[nova[i]];
+            if (!string.Equals(valores[i], artigo.Ordem, StringComparison.Ordinal))
             {
-                alteracoes.Add(new AlteracaoOrdem(artigo.Codigo, artigo.Ordem, novo));
+                alteracoes.Add(new AlteracaoOrdem(artigo.Codigo, artigo.Ordem, valores[i]!));
             }
         }
 
         return alteracoes;
     }
+
+    // Grupos de artigos seguidos com o mesmo valor: cada um fica com o valor
+    // mais uma letra (a, b, … z, depois za, zb, …), pela ordem em que estão.
+    private static void Desempatar(IReadOnlyList<string> nova, string[] valores, HashSet<string> selecao)
+    {
+        var i = 0;
+        while (i < valores.Length)
+        {
+            var j = i;
+            while (j + 1 < valores.Length && Cmp.Equals(valores[j + 1], valores[i]))
+            {
+                j++;
+            }
+
+            var tocado = selecao.Count == 0 || Enumerable.Range(i, j - i + 1).Any(k => selecao.Contains(nova[k]));
+            if (j > i && tocado)
+            {
+                var baseValor = valores[i];
+                for (var k = i; k <= j; k++)
+                {
+                    valores[k] = baseValor + Sufixo(k - i, baseValor);
+                }
+
+                // Tem de continuar antes do artigo seguinte (ex. se a seguir
+                // houver "ab0110", "ab011k" já passava à frente dele).
+                if (j + 1 < valores.Length && Cmp.Compare(valores[j], valores[j + 1]) >= 0)
+                {
+                    throw new ArgumentException(
+                        $"Não dá para desempatar os {j - i + 1} artigos com \"{baseValor}\": o valor {valores[j]} passava à frente do artigo {nova[j + 1]} ({valores[j + 1]}).");
+                }
+            }
+
+            i = j + 1;
+        }
+    }
+
+    internal static string Sufixo(int n, string referencia) =>
+        new string(Letra('z', referencia), n / 26) + Letra((char)('a' + n % 26), referencia);
 
     /// <summary>
     /// Um valor estritamente entre <paramref name="anterior"/> e

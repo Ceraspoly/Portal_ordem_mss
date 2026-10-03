@@ -208,6 +208,10 @@ main { padding: 20px; }
 /* Mudou de sítio (ainda por gravar): azul, para não se confundir com o vermelho da loja. */
 .artigo.mudou { border-color: var(--mudou); box-shadow: 0 0 0 1px var(--mudou); }
 
+/* Vai mudar ao desempatar (sem ter saído do sítio). */
+.artigo.vai-mudar { border-color: var(--mudou); border-style: dashed; }
+#btn-desempatar.ativo { background: var(--mudou); border-color: var(--mudou); color: #fff; }
+
 /* Artigos com o visto no CDU Loja: rebordo vermelho. */
 .artigo.loja { border-color: var(--loja); box-shadow: 0 0 0 2px var(--loja); }
 .artigo.loja.mudou { box-shadow: 0 0 0 2px var(--loja), 0 0 0 5px var(--mudou); }

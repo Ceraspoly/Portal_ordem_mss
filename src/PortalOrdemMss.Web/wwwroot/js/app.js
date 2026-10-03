@@ -121,8 +121,11 @@ async function entrarEmOrdenar() {
   state.ordenar = {
     original: artigos.map((a) => ({ codigo: a.codigo, ordem: a.ordem || "" })),
     arrastados: new Set(),
-    familia: el("familia").value
+    familia: el("familia").value,
+    desempatar: false,
+    previstas: 0
   };
+  el("btn-desempatar").classList.remove("ativo");
   el("grelha").classList.add("a-ordenar");
   mudarVista(state.vista);
   [...el("grelha").children].forEach((n) => { n.draggable = true; });
@@ -140,7 +143,7 @@ function sairDeOrdenar() {
   el("grelha").classList.remove("a-ordenar", "lista");
   [...el("grelha").children].forEach((n) => {
     n.draggable = false;
-    n.classList.remove("mudou", "selecionado", "a-arrastar");
+    n.classList.remove("mudou", "selecionado", "a-arrastar", "vai-mudar");
     n.querySelector(".ordem").textContent = textoOrdem(n.dataset.ordem);
   });
   el("barra-ordenar").hidden = true;
@@ -161,10 +164,34 @@ function marcarAlterados() {
     n.classList.toggle("mudou", mudou);
     if (mudou) alterados++;
   });
-  el("btn-guardar").disabled = alterados === 0;
-  el("btn-guardar").textContent = alterados === 0 ? "Guardar ordem" : `Guardar ordem (${alterados})`;
+  state.ordenar.mudados = alterados;
+  atualizarGuardar();
   numerar();
   return alterados;
+}
+
+// Quantos artigos vão mudar de CDU_MSS_ORDEM ao gravar. A desempatar conta
+// o que o servidor previu (também os que não saíram do sítio).
+function aGravar() {
+  return state.ordenar.desempatar ? state.ordenar.previstas : state.ordenar.mudados;
+}
+
+function atualizarGuardar() {
+  const n = aGravar();
+  el("btn-guardar").disabled = n === 0;
+  el("btn-guardar").textContent = n === 0 ? "Guardar ordem" : `Guardar ordem (${n})`;
+}
+
+// "Desempatar iguais": artigos seguidos com o mesmo valor (ex. 10 com
+// "ab011") ficam "ab011a", "ab011b"… pela ordem do ecrã. Com artigos
+// selecionados, só os grupos desses; sem seleção, todos os grupos.
+function alternarDesempatar() {
+  state.ordenar.desempatar = !state.ordenar.desempatar;
+  state.ordenar.previstas = 0;
+  el("btn-desempatar").classList.toggle("ativo", state.ordenar.desempatar);
+  atualizarSelecao();
+  atualizarGuardar();
+  mostrarPrevisao();
 }
 
 // ---------- Seleção (Ctrl+clique / Shift+clique) ----------
@@ -196,6 +223,14 @@ function atualizarSelecao() {
   if (!state.ordenar) return;
   const n = selecionados().length;
   el("btn-ordenar-nome").disabled = n < 2;
+  if (state.ordenar.desempatar) {
+    state.ordenar.info = n > 0
+      ? "A desempatar os grupos de iguais dos artigos selecionados (vê a ordem nova em cada artigo). Grava com “Guardar ordem”."
+      : "A desempatar todos os grupos de artigos com o mesmo valor (vê a ordem nova em cada artigo). Grava com “Guardar ordem”.";
+    el("ordenar-info").textContent = state.ordenar.info;
+    mostrarPrevisao();
+    return;
+  }
   state.ordenar.info = n > 1
     ? `${n} artigos selecionados: arrastar, os botões, as setas e “A seguir a…” movem-nos todos juntos. Esc limpa a seleção.`
     : "Arrasta, usa os botões, “A seguir a…”, ou clica num artigo e usa as setas. Ctrl+clique seleciona vários.";
@@ -364,6 +399,7 @@ function ordenarSelecaoPorNome() {
   aposMover();
 }
 el("btn-ordenar-nome").addEventListener("click", ordenarSelecaoPorNome);
+el("btn-desempatar").addEventListener("click", alternarDesempatar);
 
 el("grelha").addEventListener("click", (e) => {
   if (!state.ordenar) return;
@@ -396,7 +432,12 @@ document.addEventListener("keydown", (e) => {
 });
 
 function pedidoOrdem() {
-  return { original: state.ordenar.original, nova: codigosNoEcra(), arrastados: codigosAlterados(), familia: state.ordenar.familia };
+  const pedido = { original: state.ordenar.original, nova: codigosNoEcra(), arrastados: codigosAlterados(), familia: state.ordenar.familia };
+  if (state.ordenar.desempatar) {
+    pedido.desempatar = true;
+    pedido.selecao = selecionados().map((n) => n.dataset.codigo);
+  }
+  return pedido;
 }
 
 function textoOrdem(ordem) {
@@ -420,7 +461,10 @@ async function pedirPrevisao() {
     const alteracoes = await fetchJson("/api/ordem/previsao", { method: "POST", body: JSON.stringify(pedidoOrdem()) });
     if (pedido !== pedidoPrevisao || !state.ordenar) return;
     const novos = new Map(alteracoes.map((a) => [a.codigo, a.novo]));
+    state.ordenar.previstas = alteracoes.length;
+    atualizarGuardar();
     cards.forEach((n) => {
+      n.classList.toggle("vai-mudar", state.ordenar.desempatar && novos.has(n.dataset.codigo));
       const ordem = n.querySelector(".ordem");
       const novo = novos.get(n.dataset.codigo);
       if (novo === undefined) {
@@ -431,7 +475,10 @@ async function pedirPrevisao() {
     });
     el("ordenar-info").textContent = state.ordenar.info;
   } catch (err) {
-    if (pedido === pedidoPrevisao) el("ordenar-info").textContent = err.message;
+    if (pedido !== pedidoPrevisao || !state.ordenar) return;
+    el("ordenar-info").textContent = err.message;
+    state.ordenar.previstas = 0;
+    atualizarGuardar();
   }
 }
 
@@ -494,7 +541,8 @@ async function postComCodigo(url, dados) {
 }
 
 async function guardarOrdem() {
-  const alterados = marcarAlterados();
+  marcarAlterados();
+  const alterados = aGravar();
   if (alterados === 0) return;
   const destino = state.demo ? "nos dados de demonstração" : "no CDU_MSS_ORDEM do Primavera";
   if (!confirm(`Vais gravar a nova ordem de ${alterados} artigo(s) ${destino}.\n\nAntes de gravar fica guardada uma cópia com o CDU_MSS_ORDEM atual de toda a família.\n\nContinuar?`)) return;
