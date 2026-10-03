@@ -288,7 +288,7 @@ el("grelha").addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (!state.ordenar || el("dlg-mover").open) return;
+  if (!state.ordenar || el("dlg-mover").open || el("dlg-codigo").open) return;
   const card = el("grelha").querySelector(".artigo.selecionado");
   if (!card) return;
   const i = [...el("grelha").children].indexOf(card);
@@ -342,6 +342,31 @@ function codigosAlterados() {
   return [...el("grelha").querySelectorAll(".artigo.mudou")].map((n) => n.dataset.codigo);
 }
 
+// Pede o código de gravação (só fica em memória nesta página, nunca guardado).
+let codigoEscrita = "";
+function pedirCodigo(erro) {
+  return new Promise((resolve) => {
+    const dlg = el("dlg-codigo");
+    el("codigo-escrita").value = "";
+    el("codigo-erro").textContent = erro || "";
+    el("codigo-erro").hidden = !erro;
+    const fechar = (valor) => {
+      el("form-codigo").removeEventListener("submit", aoSubmeter);
+      el("codigo-cancelar").removeEventListener("click", aoCancelar);
+      dlg.removeEventListener("cancel", aoCancelar);
+      if (dlg.open) dlg.close();
+      resolve(valor);
+    };
+    const aoSubmeter = () => fechar(el("codigo-escrita").value);
+    const aoCancelar = (e) => { e.preventDefault(); fechar(null); };
+    el("form-codigo").addEventListener("submit", aoSubmeter);
+    el("codigo-cancelar").addEventListener("click", aoCancelar);
+    dlg.addEventListener("cancel", aoCancelar);
+    dlg.showModal();
+    el("codigo-escrita").focus();
+  });
+}
+
 async function guardarOrdem() {
   const alterados = marcarAlterados();
   if (alterados === 0) return;
@@ -351,10 +376,32 @@ async function guardarOrdem() {
   el("btn-guardar").disabled = true;
   el("ordenar-info").textContent = "A gravar…";
   try {
-    const r = await fetchJson("/api/ordem", {
-      method: "POST",
-      body: JSON.stringify(pedidoOrdem())
-    });
+    let erroCodigo = "";
+    let r;
+    for (;;) {
+      if (state.pedeCodigo && !codigoEscrita) {
+        const c = await pedirCodigo(erroCodigo);
+        if (c === null) throw new Error("Gravação cancelada.");
+        codigoEscrita = c;
+      }
+      const response = await fetch("/api/ordem", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json", "X-Codigo-Escrita": codigoEscrita },
+        body: JSON.stringify(pedidoOrdem())
+      });
+      const type = response.headers.get("Content-Type") || "";
+      const body = type.includes("application/json") ? await response.json() : null;
+      if (body && body.pedeCodigo) {
+        codigoEscrita = "";
+        state.pedeCodigo = true;
+        if (response.status === 429) throw new Error(body.error);
+        erroCodigo = body.error;
+        continue;
+      }
+      if (!response.ok || body === null) throw new Error((body && body.error) || `Erro ${response.status} ao contactar o servidor.`);
+      r = body;
+      break;
+    }
     sairDeOrdenar();
     await carregar(true);
     el("estado").textContent = `Ordem gravada (${r.gravados} artigos). ${el("estado").textContent}`;
@@ -377,6 +424,7 @@ async function iniciar() {
     state.pageSize = config.pageSize;
     state.podeReordenar = config.podeReordenar;
     state.demo = config.demo;
+    state.pedeCodigo = config.pedeCodigo === true;
     el("titulo").textContent = config.titulo;
     document.title = config.titulo;
     el("demo-badge").hidden = !config.demo;

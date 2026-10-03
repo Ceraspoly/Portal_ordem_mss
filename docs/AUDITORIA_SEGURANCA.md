@@ -4,17 +4,17 @@ Data: 2026-10-03. Âmbito: todo o repositório `Ceraspoly/Portal_ordem_mss` (API
 
 ## 1. Resumo de risco
 
-**Antes das correções: Médio. Depois: Baixo a Médio.**
+**Antes das correções: Médio. Depois: Baixo** (2.ª ronda, 2026-10-03: código obrigatório para gravar).
 
 O ponto mais forte do portal é a escrita no Primavera. Só existe um UPDATE, parametrizado e dentro de uma transação, e cada linha tem de bater com o valor anterior (senão nada é gravado). Antes de cada gravação fica uma cópia em texto e, depois, um registo CSV.
 
-O risco que fica é de desenho: **não há login**. Qualquer pessoa na rede local pode alterar o CDU_MSS_ORDEM. É uma decisão do Bruno (pediu acesso de qualquer PC da rede) e está mitigada pelas cópias de segurança. Antes destas correções, havia também um caminho por onde um site externo podia tentar gravar através do browser de quem está na rede (ver A2).
+O que impedia o risco baixo era não haver login: qualquer pessoa na rede local podia alterar o CDU_MSS_ORDEM. Agora gravar pede um código (A1). Ver o portal continua aberto a toda a rede, porque são só nomes, famílias e fotos de artigos.
 
 ## 2. Vulnerabilidades encontradas (por gravidade)
 
 | # | Gravidade | Ponto | O que era | Impacto | Estado |
 |---|---|---|---|---|---|
-| A1 | Média | 5, 8 | Sem autenticação para gravar: com `PermitirEscritaNaRede`, qualquer IP privado grava (`IsWriteAllowed`, Program.cs). | Qualquer pessoa ou PC infetado na rede pode baralhar a ordem do catálogo (reversível pelas cópias). | **Aceite por agora**; ver recomendação R1. |
+| A1 | Média | 5, 7, 8 | Sem autenticação para gravar: com `PermitirEscritaNaRede`, qualquer IP privado grava (`IsWriteAllowed`, Program.cs). | Qualquer pessoa ou PC infetado na rede pode baralhar a ordem do catálogo (reversível pelas cópias). | **Corrigido**: código obrigatório (hash PBKDF2), bloqueio após 5 erradas. |
 | A2 | Média | 10, 19 | Proteção contra pedidos de outros sites dependia só do browser exigir `Content-Type: application/json`. Sem verificação de `Origin` nem do nome do servidor: com **DNS rebinding**, uma página maliciosa aberta num PC da rede podia gravar como se fosse do próprio portal. | Alteração da ordem sem o utilizador saber. | **Corrigido** |
 | A3 | Média | 7, 1 | A connection string (com password do SQL) fica em `C:\ProgramData\MSS\PortalOrdemMss\config\settings.json`, que por omissão qualquer utilizador do servidor consegue ler (também nas cópias `.bak`). | Quem tiver conta no servidor lê a password do SQL e acede ao Primavera diretamente. | **Corrigido** no script (permissões); ver R2. |
 | A4 | Baixa | 3, 4 | Os parâmetros SQL têm tamanho fixo (`NVarChar 100`); um código ou ordem maior era **cortado em silêncio** pelo SqlClient. Listas sem limite de tamanho no pedido de ordem (o cálculo de fallback é O(n²)). | Gravar um valor diferente do mostrado; pedido enorme a ocupar o CPU. | **Corrigido** |
@@ -74,13 +74,23 @@ Além disso, `AddServerHeader = false` e os pedidos estão limitados a 4 MB.
 
 Testes: 39 a passar, incluindo novos para Origin de outro site (403), nome de servidor desconhecido (403), pedido com 5001 artigos e texto com 101 caracteres (400) e presença dos cabeçalhos. Testado no browser em modo demonstração, sem erros de CSP.
 
+**A1: código para gravar** (`Services/CodigoEscrita.cs`, `/api/ordem`, `app.js`):
+- Com `Portal:CodigoEscritaHash` definido, todas as gravações pedem o código (cabeçalho `X-Codigo-Escrita`).
+- No `settings.json` só fica `pbkdf2-sha256$210000$<salt>$<hash>` (PBKDF2-SHA256, salt aleatório de 16 bytes). A comparação é feita em tempo constante.
+- 5 tentativas erradas bloqueiam esse IP 15 minutos e ficam no log.
+- Os PCs da rede **só** podem gravar se houver código definido; sem código, só o próprio servidor grava.
+- O código é criado com `tools\ATUALIZAR-PORTAL.ps1 -DefinirCodigo`, ou pedido automaticamente com `-Rede` se ainda não existir. O script passa-o ao portal pelo stdin, nunca pela linha de comandos.
+- No browser o código fica só em memória enquanto a página está aberta.
+
+**R2: utilizador SQL mínimo**: `tools/SQL-UTILIZADOR-PORTAL.sql` cria um login só com `SELECT` em `Artigo`/`Familias` e `UPDATE` só na coluna `CDU_MSS_ORDEM`. É para correr à mão no SSMS, por quem administra o SQL Server.
+
+Testes: 42 a passar (novos: hash, bloqueio após 5 erradas, gravar sem/errado/certo).
+
 ## 4. Recomendações finais pré-deploy
 
 1. **Atualizar o servidor:** `git pull` e `tools\ATUALIZAR-PORTAL.ps1 -Rede`. Isto aplica as correções e as novas permissões da pasta `config`.
-2. **R1: código para gravar (decisão do Bruno).** Se nem todos na rede devem mexer na ordem, há duas opções:
-   - pôr `PermitirEscritaNaRede` a `false`: grava-se só no servidor e os outros PCs só veem;
-   - ou acrescentar um código pedido ao "Guardar ordem" (posso implementar).
-3. **R2: utilizador SQL com o mínimo de permissões.** Usar no portal um login SQL próprio, com `SELECT` nas tabelas lidas e `UPDATE` só na coluna `CDU_MSS_ORDEM` de `PRIMSS2CLO.dbo.Artigo`, em vez de um utilizador com acesso total. Se a password estiver noutros sítios, trocá-la depois de restringir a pasta.
-4. **R3: sem HTTP público.** O portal é HTTP simples. Manter a regra de firewall só em perfis Domínio/Privado (é o que o script faz) e nunca o publicar para a internet. Se um dia for preciso, pôr HTTPS à frente (IIS/reverse proxy).
+2. **R1: código para gravar.** Feito (A1). Partilhar o código só com quem deve ordenar; para mudar, `-DefinirCodigo`.
+3. **R2: utilizador SQL com o mínimo de permissões.** Correr `tools/SQL-UTILIZADOR-PORTAL.sql` e pôr esse utilizador na connection string. Enquanto o portal usar um utilizador com acesso total, quem conseguir a password consegue mexer em todo o Primavera. **Este é o passo que falta para o risco ficar baixo também do lado da base de dados.**
+4. **R3: sem HTTP público.** Risco residual aceite: o código vai em HTTP simples dentro da rede local (alguém a escutar a rede podia apanhá-lo). O portal é HTTP simples. Manter a regra de firewall só em perfis Domínio/Privado (é o que o script faz) e nunca o publicar para a internet. Se um dia for preciso, pôr HTTPS à frente (IIS/reverse proxy).
 5. **R4: dependências.** Correr `dotnet list package --vulnerable` de vez em quando. Atualizar o `Microsoft.Data.SqlClient` para 6.x/7.x numa próxima versão, com testes contra o Primavera.
 6. **Cópias de segurança:** incluir `C:\ProgramData\MSS\PortalOrdemMss\data\historico` no backup do servidor.

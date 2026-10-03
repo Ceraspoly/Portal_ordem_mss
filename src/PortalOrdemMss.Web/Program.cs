@@ -4,6 +4,22 @@ using Microsoft.Extensions.Options;
 using PortalOrdemMss.Web;
 using PortalOrdemMss.Web.Services;
 
+// Usado pelo script de instalação para criar o hash do código de gravação
+// (lido do stdin, nunca da linha de comandos). Não arranca o portal.
+if (args.Contains("--hash-codigo"))
+{
+    Console.InputEncoding = System.Text.Encoding.UTF8; // o script manda em UTF-8 (acentos incluídos)
+    var lido = Console.In.ReadLine()?.Trim() ?? string.Empty;
+    if (lido.Length < 6)
+    {
+        Console.Error.WriteLine("O código tem de ter pelo menos 6 caracteres.");
+        return 1;
+    }
+
+    Console.WriteLine(CodigoEscrita.CriarHash(lido));
+    return 0;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(o => o.ServiceName = "MssPortalOrdem");
 
@@ -23,6 +39,8 @@ builder.Services.AddOptions<SqlOptions>()
     .Bind(builder.Configuration.GetSection("Sql"))
     .ValidateOnStart();
 
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<CodigoEscrita>();
 builder.Services.AddSingleton<ProductImageService>();
 builder.Services.AddSingleton<DemoArtigoProvider>();
 builder.Services.AddSingleton<SqlArtigoProvider>();
@@ -152,7 +170,8 @@ app.MapGet("/api/config", (HttpContext ctx, IOptionsMonitor<PortalOptions> opts)
         titulo = opts.CurrentValue.Titulo,
         demo = opts.CurrentValue.DemoMode,
         pageSize = opts.CurrentValue.PageSize,
-        podeReordenar = opts.CurrentValue.PermitirReordenar && IsWriteAllowed(ctx, opts.CurrentValue)
+        podeReordenar = opts.CurrentValue.PermitirReordenar && IsWriteAllowed(ctx, opts.CurrentValue),
+        pedeCodigo = CodigoEscrita.HashValido(opts.CurrentValue.CodigoEscritaHash)
     }));
 
 app.MapGet("/api/familias", async (IArtigoProvider data, CancellationToken ct) =>
@@ -201,11 +220,26 @@ app.MapPost("/api/ordem/previsao", (NovaOrdemRequest req) =>
 
 // Única escrita do portal: grava o CDU_MSS_ORDEM depois de arrastar artigos.
 app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoProvider data,
-    IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, CancellationToken ct) =>
+    IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, CodigoEscrita codigo, CancellationToken ct) =>
 {
     if (!opts.CurrentValue.PermitirReordenar || !IsWriteAllowed(ctx, opts.CurrentValue))
     {
         return Results.Json(new { error = "Não tens permissão para mudar a ordem a partir deste computador." }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    // Com código definido, todas as gravações o pedem (também no servidor).
+    if (CodigoEscrita.HashValido(opts.CurrentValue.CodigoEscritaHash))
+    {
+        var fornecido = ctx.Request.Headers["X-Codigo-Escrita"].ToString();
+        switch (codigo.Verificar(opts.CurrentValue.CodigoEscritaHash, fornecido, IpDe(ctx)))
+        {
+            case ResultadoCodigo.Bloqueado:
+                app.Logger.LogWarning("Gravação bloqueada por tentativas erradas do código a partir de {Ip}.", IpDe(ctx));
+                return Results.Json(new { error = "Demasiadas tentativas erradas. Espera 15 minutos.", pedeCodigo = true }, statusCode: StatusCodes.Status429TooManyRequests);
+            case ResultadoCodigo.Errado:
+                app.Logger.LogWarning("Código de gravação errado a partir de {Ip}.", IpDe(ctx));
+                return Results.Json(new { error = fornecido.Length == 0 ? "Indica o código para gravar." : "Código errado.", pedeCodigo = true }, statusCode: StatusCodes.Status401Unauthorized);
+        }
     }
 
     if (ValidarPedido(req) is { } invalido)
@@ -269,6 +303,7 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
 }).RequireRateLimiting("gravar");
 
 app.Run();
+return 0;
 
 // Escrever no Primavera só a partir do próprio servidor (loopback), de um
 // PC da rede local se Portal:PermitirEscritaNaRede estiver ligado, ou com a
@@ -282,7 +317,8 @@ static bool IsWriteAllowed(HttpContext ctx, PortalOptions opts)
         return true;
     }
 
-    if (opts.PermitirEscritaNaRede && IsRedeLocal(remote))
+    // Da rede só com código definido: sem ele, ficaria qualquer PC a gravar.
+    if (opts.PermitirEscritaNaRede && IsRedeLocal(remote) && CodigoEscrita.HashValido(opts.CodigoEscritaHash))
     {
         return true;
     }

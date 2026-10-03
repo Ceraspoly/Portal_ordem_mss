@@ -37,6 +37,13 @@ public sealed class PortalOptions
     public bool PermitirEscritaNaRede { get; set; }
 
     /// <summary>
+    /// Hash do código pedido ao gravar ("pbkdf2-sha256$..."), criado pelo
+    /// script tools\ATUALIZAR-PORTAL.ps1 -DefinirCodigo. Com ele definido,
+    /// todas as gravações pedem o código; sem ele, os PCs da rede não gravam.
+    /// </summary>
+    public string CodigoEscritaHash { get; set; } = string.Empty;
+
+    /// <summary>
     /// Nomes extra (além de IPs, localhost e o nome do servidor) pelos quais
     /// se pode abrir o portal para gravar, ex. "portal.ceraspoly.local".
     /// Protege contra DNS rebinding.

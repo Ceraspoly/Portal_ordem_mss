@@ -9,6 +9,10 @@
                          põe Portal:ListenUrl = http://0.0.0.0:<Porta> e
                          Portal:PermitirEscritaNaRede = true no settings.json (guarda antes
                          uma cópia settings.json.bak-<data>) e abre a porta na firewall
+                         Se ainda não houver código de gravação, pede um (obrigatório para
+                         gravar a partir da rede).
+      -DefinirCodigo     define (ou muda) o código pedido ao carregar em "Guardar ordem".
+                         No settings.json só fica o hash, nunca o código.
       -AbrirFirewall     só cria a regra de firewall para a porta
       -Porta 5090        porta usada para confirmar o /health
 
@@ -23,13 +27,14 @@
   Voltar atrás: parar o serviço, apontar "current" para a pasta da versão anterior em
   "versions" e arrancar de novo (ver README, "Pôr em produção").
   As versões antigas não são apagadas. A configuração (settings.json) fica em
-  %ProgramData%\MSS\PortalOrdemMss e só é alterada com -Rede (e sempre com cópia antes).
+  %ProgramData%\MSS\PortalOrdemMss e só é alterada com -Rede ou -DefinirCodigo (e sempre com cópia antes).
 
   Nota: guardar este ficheiro em UTF-8 com BOM (o Windows PowerShell 5.1 lê mal os acentos sem BOM).
 #>
 param(
     [switch]$SemGitPull,
     [switch]$Rede,
+    [switch]$DefinirCodigo,
     [switch]$AbrirFirewall,
     [int]$Porta = 5090,
     [string]$Raiz = "C:\Program Files\MSS\PortalOrdemMss",
@@ -71,6 +76,34 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish falhou. O serviço atual não f
 $exe = Join-Path $destino "PortalOrdemMss.Web.exe"
 if (-not (Test-Path $exe)) { throw "Não encontrei $exe depois do publish." }
 
+$pastaConfig = Join-Path $env:ProgramData "MSS\PortalOrdemMss\config"
+$settings = Join-Path $pastaConfig "settings.json"
+
+# Código de gravação: pedido já aqui (antes de parar o serviço). Com -Rede é
+# obrigatório; sem código, os PCs da rede não conseguem gravar.
+$novoHash = $null
+$temCodigo = $false
+if (Test-Path $settings) {
+    $atual = Get-Content $settings -Raw -Encoding UTF8 | ConvertFrom-Json
+    $temCodigo = [bool]($atual.Portal -and $atual.Portal.CodigoEscritaHash -like 'pbkdf2-sha256$*')
+}
+if ($DefinirCodigo -or ($Rede -and -not $temCodigo)) {
+    Passo "Código para gravar a ordem (mínimo 6 caracteres; é pedido ao carregar em 'Guardar ordem')"
+    for (;;) {
+        $c1 = Read-Host "Novo código" -AsSecureString
+        $c2 = Read-Host "Repete o código" -AsSecureString
+        $p1 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($c1))
+        $p2 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($c2))
+        if ($p1 -ne $p2) { Write-Host "Os códigos não são iguais. Tenta de novo." -ForegroundColor Yellow; continue }
+        if ($p1.Length -lt 6) { Write-Host "Tem de ter pelo menos 6 caracteres." -ForegroundColor Yellow; continue }
+        break
+    }
+    $OutputEncoding = New-Object Text.UTF8Encoding $false  # acentos chegam iguais ao portal
+    $novoHash = ($p1 | & $exe --hash-codigo | Select-Object -Last 1).Trim()
+    $p1 = $null; $p2 = $null
+    if ($LASTEXITCODE -ne 0 -or $novoHash -notlike 'pbkdf2-sha256$*') { throw "Não foi possível criar o código. O serviço atual não foi tocado." }
+}
+
 $servico = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 
 # Uma janela com "dotnet run" na mesma porta impede o serviço de arrancar.
@@ -106,10 +139,8 @@ if ($null -eq $servico) {
     sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/60000 | Out-Null
 }
 
-if ($Rede) {
-    Passo "A abrir o portal à rede local (settings.json)"
-    $pastaConfig = Join-Path $env:ProgramData "MSS\PortalOrdemMss\config"
-    $settings = Join-Path $pastaConfig "settings.json"
+if ($Rede -or $novoHash) {
+    Passo "A atualizar o settings.json"
     New-Item -ItemType Directory -Path $pastaConfig -Force | Out-Null
     if (Test-Path $settings) {
         Copy-Item $settings ("$settings.bak-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -120,10 +151,15 @@ if ($Rede) {
     if (-not $config.PSObject.Properties["Portal"]) {
         $config | Add-Member -NotePropertyName Portal -NotePropertyValue (New-Object PSObject)
     }
-    $config.Portal | Add-Member -NotePropertyName ListenUrl -NotePropertyValue "http://0.0.0.0:$Porta" -Force
-    $config.Portal | Add-Member -NotePropertyName PermitirEscritaNaRede -NotePropertyValue $true -Force
+    if ($Rede) {
+        $config.Portal | Add-Member -NotePropertyName ListenUrl -NotePropertyValue "http://0.0.0.0:$Porta" -Force
+        $config.Portal | Add-Member -NotePropertyName PermitirEscritaNaRede -NotePropertyValue $true -Force
+        $AbrirFirewall = $true
+    }
+    if ($novoHash) {
+        $config.Portal | Add-Member -NotePropertyName CodigoEscritaHash -NotePropertyValue $novoHash -Force
+    }
     [IO.File]::WriteAllText($settings, ($config | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
-    $AbrirFirewall = $true
 }
 
 # O settings.json tem a password do SQL: só o sistema (o serviço) e os

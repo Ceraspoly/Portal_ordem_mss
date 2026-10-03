@@ -75,6 +75,8 @@ Segurança da escrita no Primavera:
 - O utilizador SQL da connection string precisa de permissão de UPDATE na tabela `Artigo`.
 - Proteções da API (ver `docs/AUDITORIA_SEGURANCA.md`): pedidos POST de outros sites (CSRF) ou com um nome de servidor desconhecido (DNS rebinding) são recusados; para usar um nome DNS próprio, acrescentá-lo a `Portal:HostsPermitidos`. Limite de 20 gravações e 1200 pedidos à API por minuto e por IP, pedidos até 4 MB, cabeçalhos CSP/X-Frame-Options/nosniff.
 - O script de instalação deixa a pasta `config` (que tem a password do SQL) legível só pelo sistema e pelos Administradores.
+- **Código para gravar**: com `Portal:CodigoEscritaHash` definido, "Guardar ordem" pede um código (5 erradas bloqueiam o IP 15 minutos). No `settings.json` só fica o hash. Definir/mudar com `tools\ATUALIZAR-PORTAL.ps1 -DefinirCodigo` (com `-Rede` é pedido automaticamente se ainda não existir). Sem código, os PCs da rede não conseguem gravar.
+- `tools/SQL-UTILIZADOR-PORTAL.sql`: utilizador SQL só com leitura de `Artigo`/`Familias` e escrita na coluna `CDU_MSS_ORDEM` (correr à mão no SSMS).
 - O Portal de Encomendas Rápidas também ordena por CDU_MSS_ORDEM, por isso a nova ordem aparece lá também.
 
 ## Fotos
