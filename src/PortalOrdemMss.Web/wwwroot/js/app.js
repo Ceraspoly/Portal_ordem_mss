@@ -82,6 +82,8 @@ function podeEntrarEmOrdenar() {
 function atualizarBotaoOrdenar() {
   const btn = el("btn-ordenar");
   btn.hidden = !state.podeReordenar;
+  el("btn-historico").hidden = !state.podeReordenar;
+  el("btn-historico").disabled = state.ordenar !== null;
   btn.disabled = state.ordenar !== null || !podeEntrarEmOrdenar();
   btn.title = btn.disabled && state.ordenar === null ? "Apaga o texto da pesquisa para ordenar." : "";
 }
@@ -367,6 +369,35 @@ function pedirCodigo(erro) {
   });
 }
 
+// POST que grava no Primavera: pede o código quando o servidor o exige e
+// volta a pedir se estiver errado.
+async function postComCodigo(url, dados) {
+  let erroCodigo = "";
+  for (;;) {
+    if (state.pedeCodigo && !codigoEscrita) {
+      const c = await pedirCodigo(erroCodigo);
+      if (c === null) throw new Error("Gravação cancelada.");
+      codigoEscrita = c;
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json", "X-Codigo-Escrita": codigoEscrita },
+      body: JSON.stringify(dados)
+    });
+    const type = response.headers.get("Content-Type") || "";
+    const body = type.includes("application/json") ? await response.json() : null;
+    if (body && body.pedeCodigo) {
+      codigoEscrita = "";
+      state.pedeCodigo = true;
+      if (response.status === 429) throw new Error(body.error);
+      erroCodigo = body.error;
+      continue;
+    }
+    if (!response.ok || body === null) throw new Error((body && body.error) || `Erro ${response.status} ao contactar o servidor.`);
+    return body;
+  }
+}
+
 async function guardarOrdem() {
   const alterados = marcarAlterados();
   if (alterados === 0) return;
@@ -376,32 +407,7 @@ async function guardarOrdem() {
   el("btn-guardar").disabled = true;
   el("ordenar-info").textContent = "A gravar…";
   try {
-    let erroCodigo = "";
-    let r;
-    for (;;) {
-      if (state.pedeCodigo && !codigoEscrita) {
-        const c = await pedirCodigo(erroCodigo);
-        if (c === null) throw new Error("Gravação cancelada.");
-        codigoEscrita = c;
-      }
-      const response = await fetch("/api/ordem", {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json", "X-Codigo-Escrita": codigoEscrita },
-        body: JSON.stringify(pedidoOrdem())
-      });
-      const type = response.headers.get("Content-Type") || "";
-      const body = type.includes("application/json") ? await response.json() : null;
-      if (body && body.pedeCodigo) {
-        codigoEscrita = "";
-        state.pedeCodigo = true;
-        if (response.status === 429) throw new Error(body.error);
-        erroCodigo = body.error;
-        continue;
-      }
-      if (!response.ok || body === null) throw new Error((body && body.error) || `Erro ${response.status} ao contactar o servidor.`);
-      r = body;
-      break;
-    }
+    const r = await postComCodigo("/api/ordem", pedidoOrdem());
     sairDeOrdenar();
     await carregar(true);
     el("estado").textContent = `Ordem gravada (${r.gravados} artigos). ${el("estado").textContent}`;
@@ -410,6 +416,84 @@ async function guardarOrdem() {
     el("btn-guardar").disabled = false;
   }
 }
+
+// ---------- Histórico: últimas 15 gravações, com reverter ----------
+
+function quando(data) {
+  return new Date(data).toLocaleString("pt-PT", { dateStyle: "short", timeStyle: "short" });
+}
+
+function linhaGravacao(g, ultimas) {
+  const li = document.createElement("li");
+  li.className = "gravacao";
+  li.classList.toggle("revertida", !!g.revertidaPor);
+
+  const titulo = document.createElement("div");
+  titulo.className = "quando";
+  titulo.textContent = `${quando(g.data)} · ${g.descricao}`;
+
+  const info = document.createElement("div");
+  info.className = "info";
+  info.textContent = `${g.familia} · gravado de ${g.origem}`;
+
+  const acao = document.createElement("div");
+  acao.className = "acao";
+  if (g.revertidaPor) {
+    const revertida = ultimas.find((x) => x.id === g.revertidaPor);
+    acao.append(Object.assign(document.createElement("span"), {
+      className: "etiqueta",
+      textContent: revertida ? `Revertida em ${quando(revertida.data)}` : "Revertida"
+    }));
+  } else {
+    const btn = Object.assign(document.createElement("button"), { type: "button", className: "btn", textContent: "Reverter" });
+    btn.addEventListener("click", () => reverter(g, btn));
+    acao.append(btn);
+  }
+
+  const detalhes = document.createElement("details");
+  detalhes.append(Object.assign(document.createElement("summary"), { textContent: `Ver os ${g.alteracoes.length} artigo(s)` }));
+  const ul = document.createElement("ul");
+  g.alteracoes.forEach((a) => {
+    ul.append(Object.assign(document.createElement("li"), { textContent: `${a.codigo}: ${a.anterior || "(vazio)"} → ${a.novo}` }));
+  });
+  detalhes.append(ul);
+
+  li.append(titulo, acao, info, detalhes);
+  return li;
+}
+
+async function abrirHistorico() {
+  el("historico-estado").textContent = "A carregar…";
+  el("historico-lista").replaceChildren();
+  if (!el("dlg-historico").open) el("dlg-historico").showModal();
+  try {
+    const ultimas = await fetchJson("/api/historico");
+    el("historico-estado").textContent = ultimas.length === 0
+      ? "Ainda não há gravações."
+      : "Reverter põe os artigos dessa gravação com a ordem que tinham antes. Se algum foi mudado depois, reverte primeiro as mais recentes.";
+    el("historico-lista").replaceChildren(...ultimas.map((g) => linhaGravacao(g, ultimas)));
+  } catch (err) {
+    el("historico-estado").textContent = err.message;
+  }
+}
+
+async function reverter(g, btn) {
+  if (!confirm(`Reverter a gravação de ${quando(g.data)}?\n\n${g.alteracoes.length} artigo(s) voltam à ordem que tinham antes. Fica guardada uma cópia antes.`)) return;
+  btn.disabled = true;
+  el("historico-estado").textContent = "A reverter…";
+  try {
+    const r = await postComCodigo(`/api/historico/${encodeURIComponent(g.id)}/reverter`, {});
+    await abrirHistorico();
+    el("historico-estado").textContent = `Revertido (${r.gravados} artigos).`;
+    carregar(true);
+  } catch (err) {
+    el("historico-estado").textContent = err.message;
+    btn.disabled = false;
+  }
+}
+
+el("btn-historico").addEventListener("click", abrirHistorico);
+el("historico-fechar").addEventListener("click", () => el("dlg-historico").close());
 
 el("btn-ordenar").addEventListener("click", entrarEmOrdenar);
 document.querySelectorAll("[data-vista]").forEach((b) => b.addEventListener("click", () => mudarVista(b.dataset.vista)));

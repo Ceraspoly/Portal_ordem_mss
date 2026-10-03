@@ -46,6 +46,7 @@ builder.Services.AddSingleton<DemoArtigoProvider>();
 builder.Services.AddSingleton<SqlArtigoProvider>();
 builder.Services.AddSingleton<IArtigoProvider, DynamicArtigoProvider>();
 builder.Services.AddSingleton(new OrdemAuditLog(Path.Combine(rootDirectory, "data", "alteracoes-ordem.csv")));
+builder.Services.AddSingleton(new HistoricoGravacoes(Path.Combine(rootDirectory, "data", "gravacoes")));
 builder.Services.AddResponseCompression(o => o.EnableForHttps = true);
 builder.Services.AddHealthChecks();
 
@@ -58,6 +59,7 @@ builder.WebHost.ConfigureKestrel(k =>
 });
 
 // Limite de pedidos por IP: geral na API e mais apertado para gravar.
+var gravacoesPorMinuto = builder.Configuration.GetValue("Portal:GravacoesPorMinuto", 20);
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -68,7 +70,7 @@ builder.Services.AddRateLimiter(o =>
             ? RateLimitPartition.GetFixedWindowLimiter(IpDe(ctx), _ => new FixedWindowRateLimiterOptions { PermitLimit = 1200, Window = TimeSpan.FromMinutes(1) })
             : RateLimitPartition.GetNoLimiter("estaticos"));
     o.AddPolicy("gravar", ctx => RateLimitPartition.GetFixedWindowLimiter(IpDe(ctx),
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1) }));
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = gravacoesPorMinuto, Window = TimeSpan.FromMinutes(1) }));
 });
 
 var listenUrl = builder.Configuration["Portal:ListenUrl"];
@@ -220,26 +222,11 @@ app.MapPost("/api/ordem/previsao", (NovaOrdemRequest req) =>
 
 // Única escrita do portal: grava o CDU_MSS_ORDEM depois de arrastar artigos.
 app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoProvider data,
-    IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, CodigoEscrita codigo, CancellationToken ct) =>
+    IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, HistoricoGravacoes historico, CodigoEscrita codigo, CancellationToken ct) =>
 {
-    if (!opts.CurrentValue.PermitirReordenar || !IsWriteAllowed(ctx, opts.CurrentValue))
+    if (Autorizar(ctx, opts.CurrentValue, codigo) is { } recusado)
     {
-        return Results.Json(new { error = "Não tens permissão para mudar a ordem a partir deste computador." }, statusCode: StatusCodes.Status403Forbidden);
-    }
-
-    // Com código definido, todas as gravações o pedem (também no servidor).
-    if (CodigoEscrita.HashValido(opts.CurrentValue.CodigoEscritaHash))
-    {
-        var fornecido = ctx.Request.Headers["X-Codigo-Escrita"].ToString();
-        switch (codigo.Verificar(opts.CurrentValue.CodigoEscritaHash, fornecido, IpDe(ctx)))
-        {
-            case ResultadoCodigo.Bloqueado:
-                app.Logger.LogWarning("Gravação bloqueada por tentativas erradas do código a partir de {Ip}.", IpDe(ctx));
-                return Results.Json(new { error = "Demasiadas tentativas erradas. Espera 15 minutos.", pedeCodigo = true }, statusCode: StatusCodes.Status429TooManyRequests);
-            case ResultadoCodigo.Errado:
-                app.Logger.LogWarning("Código de gravação errado a partir de {Ip}.", IpDe(ctx));
-                return Results.Json(new { error = fornecido.Length == 0 ? "Indica o código para gravar." : "Código errado.", pedeCodigo = true }, statusCode: StatusCodes.Status401Unauthorized);
-        }
+        return recusado;
     }
 
     if (ValidarPedido(req) is { } invalido)
@@ -269,37 +256,52 @@ app.MapPost("/api/ordem", async (HttpContext ctx, NovaOrdemRequest req, IArtigoP
         return Results.Ok(new { gravados = 0 });
     }
 
-    var origem = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+    var familia = (req.Familia ?? "").Trim();
+    var descricao = $"{alteracoes.Count} artigo(s) mudado(s) de sítio";
+    return await GravarComCopia(ctx, data, opts.CurrentValue, audit, historico, familia, alteracoes, descricao, null, ct);
+}).RequireRateLimiting("gravar");
 
-    // Antes de gravar: cópia em texto de todos os CDU_MSS_ORDEM da família,
-    // lidos agora do Primavera. Sem cópia não se grava nada.
-    try
+// Últimas gravações (as mais recentes primeiro), para o ecrã "Histórico".
+app.MapGet("/api/historico", (HttpContext ctx, IOptionsMonitor<PortalOptions> opts, HistoricoGravacoes historico) =>
+    Results.Ok(historico.Ultimas().Select(g => new
     {
-        // Família vazia = catálogo inteiro (ordenação sem família).
-        var familia = (req.Familia ?? "").Trim();
-        var atuais = await data.SearchAsync(new PesquisaArtigos("", familia, 0, MaxArtigosOrdenar + 1), ct);
-        var copia = audit.GuardarCopia(familia, atuais, alteracoes, opts.CurrentValue.DemoMode ? $"demo {origem}" : origem);
-        app.Logger.LogInformation("Cópia da ordem antes de gravar: {Ficheiro}", copia);
-    }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        g.Id,
+        g.Data,
+        g.Origem,
+        familia = g.Familia.Length == 0 ? "Todas as famílias" : g.Familia,
+        g.Descricao,
+        g.Alteracoes,
+        g.Reverte,
+        g.RevertidaPor
+    })));
+
+// Reverter uma gravação: cada artigo volta ao valor que tinha antes dela.
+// Só se nenhum desses artigos tiver mudado depois (senão, 409 a pedir para
+// reverter primeiro as gravações mais recentes). A reversão é ela própria
+// uma gravação nova no histórico, com cópia antes, como as outras.
+app.MapPost("/api/historico/{id}/reverter", async (string id, HttpContext ctx, IArtigoProvider data,
+    IOptionsMonitor<PortalOptions> opts, OrdemAuditLog audit, HistoricoGravacoes historico, CodigoEscrita codigo, CancellationToken ct) =>
+{
+    if (Autorizar(ctx, opts.CurrentValue, codigo) is { } recusado)
     {
-        app.Logger.LogError(ex, "Não foi possível guardar a cópia antes de gravar a ordem.");
-        return Results.Json(new { error = "Não foi possível guardar a cópia de segurança antes de gravar, por isso nada foi gravado." },
-            statusCode: StatusCodes.Status500InternalServerError);
+        return recusado;
     }
 
-    try
+    if (historico.Obter(id) is not { } g)
     {
-        await data.GravarOrdemAsync(alteracoes, ct);
-    }
-    catch (OrdemConflitoException ex)
-    {
-        return Results.Conflict(new { error = ex.Message });
+        return Results.NotFound(new { error = "Essa gravação não existe." });
     }
 
-    audit.Registar(alteracoes, opts.CurrentValue.DemoMode ? $"demo {origem}" : origem);
-    app.Logger.LogInformation("Ordem gravada para {Count} artigos a partir de {Origem}.", alteracoes.Count, origem);
-    return Results.Ok(new { gravados = alteracoes.Count });
+    if (g.RevertidaPor is not null)
+    {
+        return Results.Conflict(new { error = "Essa gravação já foi revertida." });
+    }
+
+    var inverso = g.Alteracoes.Select(a => new AlteracaoOrdem(a.Codigo, a.Novo, a.Anterior)).ToList();
+    var descricao = $"Reversão da gravação de {g.Data:dd/MM/yyyy HH:mm} ({inverso.Count} artigo(s))";
+    var resultado = await GravarComCopia(ctx, data, opts.CurrentValue, audit, historico, g.Familia, inverso, descricao, g.Id, ct,
+        conflito: "Há artigos desta gravação que foram mudados depois. Reverte primeiro as gravações mais recentes.");
+    return resultado;
 }).RequireRateLimiting("gravar");
 
 app.Run();
@@ -328,6 +330,85 @@ static bool IsWriteAllowed(HttpContext ctx, PortalOptions opts)
         && ctx.Request.Headers.TryGetValue("X-Admin-Key", out var provided)
         && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
             System.Text.Encoding.UTF8.GetBytes(key), System.Text.Encoding.UTF8.GetBytes(provided.ToString()));
+}
+
+// Permissão para gravar: computador autorizado e, se houver código
+// definido, o código certo (também no servidor). null = pode gravar.
+IResult? Autorizar(HttpContext ctx, PortalOptions o, CodigoEscrita codigo)
+{
+    if (!o.PermitirReordenar || !IsWriteAllowed(ctx, o))
+    {
+        return Results.Json(new { error = "Não tens permissão para mudar a ordem a partir deste computador." }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (!CodigoEscrita.HashValido(o.CodigoEscritaHash))
+    {
+        return null;
+    }
+
+    var fornecido = ctx.Request.Headers["X-Codigo-Escrita"].ToString();
+    switch (codigo.Verificar(o.CodigoEscritaHash, fornecido, IpDe(ctx)))
+    {
+        case ResultadoCodigo.Bloqueado:
+            app.Logger.LogWarning("Gravação bloqueada por tentativas erradas do código a partir de {Ip}.", IpDe(ctx));
+            return Results.Json(new { error = "Demasiadas tentativas erradas. Espera 15 minutos.", pedeCodigo = true }, statusCode: StatusCodes.Status429TooManyRequests);
+        case ResultadoCodigo.Errado:
+            app.Logger.LogWarning("Código de gravação errado a partir de {Ip}.", IpDe(ctx));
+            return Results.Json(new { error = fornecido.Length == 0 ? "Indica o código para gravar." : "Código errado.", pedeCodigo = true }, statusCode: StatusCodes.Status401Unauthorized);
+        default:
+            return null;
+    }
+}
+
+// Grava no Primavera com cópia antes (texto com todos os CDU_MSS_ORDEM da
+// família, lidos agora; sem cópia não se grava nada), registo CSV depois e
+// entrada no histórico para poder reverter.
+async Task<IResult> GravarComCopia(HttpContext ctx, IArtigoProvider data, PortalOptions o, OrdemAuditLog audit,
+    HistoricoGravacoes historico, string familia, IReadOnlyList<AlteracaoOrdem> alteracoes, string descricao,
+    string? reverte, CancellationToken ct, string? conflito = null)
+{
+    var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+    var origem = o.DemoMode ? $"demo {ip}" : ip;
+    try
+    {
+        // Família vazia = catálogo inteiro.
+        var atuais = await data.SearchAsync(new PesquisaArtigos("", familia, 0, MaxArtigosOrdenar + 1), ct);
+        var copia = audit.GuardarCopia(familia, atuais, alteracoes, origem);
+        app.Logger.LogInformation("Cópia da ordem antes de gravar: {Ficheiro}", copia);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        app.Logger.LogError(ex, "Não foi possível guardar a cópia antes de gravar a ordem.");
+        return Results.Json(new { error = "Não foi possível guardar a cópia de segurança antes de gravar, por isso nada foi gravado." },
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    try
+    {
+        await data.GravarOrdemAsync(alteracoes, ct);
+    }
+    catch (OrdemConflitoException ex)
+    {
+        return Results.Conflict(new { error = conflito ?? ex.Message });
+    }
+
+    audit.Registar(alteracoes, reverte is null ? origem : $"{origem} (reversão)");
+    try
+    {
+        var g = historico.Registar(familia, origem, descricao, alteracoes, reverte);
+        if (reverte is not null)
+        {
+            historico.MarcarRevertida(reverte, g.Id);
+        }
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        // Já está gravado no Primavera e no CSV; só não aparece no histórico do portal.
+        app.Logger.LogError(ex, "Gravado, mas não foi possível escrever no histórico de gravações.");
+    }
+
+    app.Logger.LogInformation("Ordem gravada para {Count} artigos a partir de {Origem}: {Descricao}.", alteracoes.Count, origem, descricao);
+    return Results.Ok(new { gravados = alteracoes.Count });
 }
 
 static string IpDe(HttpContext ctx) => ctx.Connection.RemoteIpAddress?.ToString() ?? "desconhecido";

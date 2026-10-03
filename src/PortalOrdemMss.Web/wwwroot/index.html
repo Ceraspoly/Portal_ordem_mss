@@ -16,6 +16,7 @@
         <option value="">Todas as famílias</option>
       </select>
       <button id="btn-ordenar" class="btn" type="button" hidden>Ordenar</button>
+      <button id="btn-historico" class="btn" type="button" hidden>Histórico</button>
     </div>
   </header>
 
@@ -63,6 +64,15 @@
         <button type="submit" class="btn btn-principal">Mover</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="dlg-historico" class="dlg-historico">
+    <div class="historico-topo">
+      <h2>Últimas 15 gravações</h2>
+      <button type="button" id="historico-fechar" class="btn">Fechar</button>
+    </div>
+    <p id="historico-estado" class="historico-estado"></p>
+    <ol id="historico-lista" class="historico-lista"></ol>
   </dialog>
 
   <dialog id="dlg-codigo" class="dlg-mover">
