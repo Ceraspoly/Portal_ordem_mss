@@ -76,6 +76,19 @@ public sealed class ApiDemoTests : IClassFixture<ApiDemoTests.Factory>
     }
 
     [Fact]
+    public async Task Filtro_so_loja_devolve_so_artigos_de_loja()
+    {
+        var loja = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?loja=true"))!;
+        Assert.Equal(new[] { "ACE003", "CER001", "VEL002" }, loja.Select(a => a.Codigo).Order());
+
+        var velasLoja = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?familia=VEL&loja=true&todos=true"))!;
+        Assert.Equal(new[] { "VEL002" }, velasLoja.Select(a => a.Codigo));
+
+        var pesquisa = (await _client.GetFromJsonAsync<List<Artigo>>("/api/artigos?q=cera&loja=true"))!;
+        Assert.Equal(new[] { "CER001" }, pesquisa.Select(a => a.Codigo));
+    }
+
+    [Fact]
     public async Task Recusa_gravar_vindo_de_outro_site()
     {
         var pedido = new HttpRequestMessage(HttpMethod.Post, "/api/ordem")

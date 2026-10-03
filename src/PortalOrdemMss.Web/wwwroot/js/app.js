@@ -49,6 +49,7 @@ async function carregar(reset) {
   if (reset) state.offset = 0;
 
   const params = new URLSearchParams({ q: el("pesquisa").value.trim(), familia: el("familia").value, offset: state.offset });
+  if (el("so-loja").checked) params.set("loja", "true");
   el("estado").textContent = "A carregar…";
   try {
     const artigos = await fetchJson(`/api/artigos?${params}`);
@@ -62,7 +63,8 @@ async function carregar(reset) {
     state.artigos.push(...artigos);
     state.offset += artigos.length;
     el("mais").hidden = artigos.length < state.pageSize;
-    el("estado").textContent = state.offset === 0 ? "Nenhum artigo encontrado." : `${state.offset} artigos`;
+    el("estado").textContent = state.offset === 0 ? "Nenhum artigo encontrado." : `${state.offset} artigos${el("so-loja").checked ? " de loja" : ""}`;
+    numerar();
   } catch (err) {
     if (pedido === state.pedido) el("estado").textContent = err.message;
   }
@@ -101,6 +103,7 @@ async function entrarEmOrdenar() {
   let artigos;
   try {
     const params = new URLSearchParams({ familia: el("familia").value, todos: "true" });
+    if (el("so-loja").checked) params.set("loja", "true");
     artigos = await fetchJson(`/api/artigos?${params}`);
   } catch (err) {
     el("estado").textContent = err.message;
@@ -124,9 +127,9 @@ async function entrarEmOrdenar() {
   mudarVista(state.vista);
   [...el("grelha").children].forEach((n) => { n.draggable = true; });
   el("barra-ordenar").hidden = false;
-  el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = true;
-  state.ordenar.info = "Arrasta, usa os botões, “A seguir a…”, ou clica num artigo e usa as setas do teclado.";
-  el("ordenar-info").textContent = state.ordenar.info;
+  el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = el("so-loja").disabled = true;
+  ancora = null;
+  atualizarSelecao();
   marcarAlterados();
   atualizarBotaoOrdenar();
 }
@@ -137,12 +140,17 @@ function sairDeOrdenar() {
   el("grelha").classList.remove("a-ordenar", "lista");
   [...el("grelha").children].forEach((n) => {
     n.draggable = false;
-    n.classList.remove("mudou", "selecionado");
+    n.classList.remove("mudou", "selecionado", "a-arrastar");
     n.querySelector(".ordem").textContent = textoOrdem(n.dataset.ordem);
   });
   el("barra-ordenar").hidden = true;
-  el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = false;
+  el("pesquisa").disabled = el("familia").disabled = el("mais").disabled = el("so-loja").disabled = false;
   atualizarBotaoOrdenar();
+}
+
+// Número da posição de cada artigo na lista que está no ecrã.
+function numerar() {
+  [...el("grelha").children].forEach((n, i) => { n.querySelector(".posicao").textContent = i + 1; });
 }
 
 function marcarAlterados() {
@@ -155,16 +163,68 @@ function marcarAlterados() {
   });
   el("btn-guardar").disabled = alterados === 0;
   el("btn-guardar").textContent = alterados === 0 ? "Guardar ordem" : `Guardar ordem (${alterados})`;
+  numerar();
   return alterados;
 }
 
+// ---------- Seleção (Ctrl+clique / Shift+clique) ----------
+
+// Artigos selecionados, pela ordem em que estão no ecrã. Com vários
+// selecionados, arrastar, os botões, as setas e "A seguir a…" movem-nos
+// todos juntos, como um bloco.
+function selecionados() {
+  return [...el("grelha").querySelectorAll(".artigo.selecionado")];
+}
+
+let ancora = null;
+function selecionar(card, modo) {
+  const todos = [...el("grelha").children];
+  if (modo === "alternar") {
+    card.classList.toggle("selecionado");
+    ancora = card;
+  } else if (modo === "intervalo" && ancora && ancora.isConnected) {
+    const [a, b] = [todos.indexOf(ancora), todos.indexOf(card)].sort((x, y) => x - y);
+    todos.forEach((n, i) => n.classList.toggle("selecionado", i >= a && i <= b));
+  } else {
+    todos.forEach((n) => n.classList.toggle("selecionado", n === card));
+    ancora = card;
+  }
+  atualizarSelecao();
+}
+
+function atualizarSelecao() {
+  if (!state.ordenar) return;
+  const n = selecionados().length;
+  el("btn-ordenar-nome").disabled = n < 2;
+  state.ordenar.info = n > 1
+    ? `${n} artigos selecionados: arrastar, os botões, as setas e “A seguir a…” movem-nos todos juntos. Esc limpa a seleção.`
+    : "Arrasta, usa os botões, “A seguir a…”, ou clica num artigo e usa as setas. Ctrl+clique seleciona vários.";
+  el("ordenar-info").textContent = state.ordenar.info;
+}
+
+// O bloco a mover a partir de um artigo: a seleção, se ele fizer parte
+// dela; senão só ele (e passa a ser o selecionado).
+function blocoDe(card) {
+  if (card.classList.contains("selecionado")) return selecionados();
+  selecionar(card);
+  return [card];
+}
+
+function marcarArrastados(bloco) {
+  bloco.forEach((c) => state.ordenar.arrastados.add(c.dataset.codigo));
+}
+
+// ---------- Reordenar (arrastar e largar) ----------
+
 let arrastado = null;
+let blocoArrastado = [];
 el("grelha").addEventListener("dragstart", (e) => {
   const card = e.target.closest(".artigo");
   if (!state.ordenar || !card) return;
   arrastado = card;
-  state.ordenar.arrastados.add(card.dataset.codigo);
-  card.classList.add("a-arrastar");
+  blocoArrastado = blocoDe(card);
+  marcarArrastados(blocoArrastado);
+  blocoArrastado.forEach((c) => c.classList.add("a-arrastar"));
   e.dataTransfer.effectAllowed = "move";
   e.dataTransfer.setData("text/plain", card.dataset.codigo);
 });
@@ -177,7 +237,7 @@ el("grelha").addEventListener("dragover", (e) => {
   else if (e.clientY > window.innerHeight - margem) window.scrollBy(0, 18);
 
   const alvo = e.target.closest(".artigo");
-  if (!alvo || alvo === arrastado) return;
+  if (!alvo || blocoArrastado.includes(alvo)) return;
   const r = alvo.getBoundingClientRect();
   const depois = el("grelha").classList.contains("lista")
     ? e.clientY > r.top + r.height / 2
@@ -187,8 +247,17 @@ el("grelha").addEventListener("dragover", (e) => {
 el("grelha").addEventListener("drop", (e) => e.preventDefault());
 el("grelha").addEventListener("dragend", () => {
   if (!arrastado) return;
-  arrastado.classList.remove("a-arrastar");
+  // Durante o arrasto só o artigo agarrado anda; ao largar, o resto do
+  // bloco junta-se a ele, pela ordem em que estavam.
+  const marca = document.createComment("");
+  arrastado.before(marca);
+  blocoArrastado.forEach((c) => {
+    marca.before(c);
+    c.classList.remove("a-arrastar");
+  });
+  marca.remove();
   arrastado = null;
+  blocoArrastado = [];
   aposMover();
 });
 
@@ -199,37 +268,49 @@ function aposMover() {
   mostrarPrevisao();
 }
 
-function mover(card, destino) {
+// Move o bloco (fica junto, pela ordem do ecrã) para o topo, o fim, ou uma
+// posição acima/abaixo dos artigos que não fazem parte dele.
+function moverBloco(bloco, onde) {
   const grelha = el("grelha");
-  const itens = [...grelha.children];
-  const atual = itens.indexOf(card);
-  const alvo = Math.max(0, Math.min(itens.length - 1, destino));
-  if (atual < 0 || alvo === atual) return;
-  state.ordenar.arrastados.add(card.dataset.codigo);
-  card.remove();
-  const resto = [...grelha.children];
-  grelha.insertBefore(card, resto[alvo] || null);
-  selecionar(card);
-  card.scrollIntoView({ block: "nearest" });
+  const todos = [...grelha.children];
+  const resto = todos.filter((n) => !bloco.includes(n));
+  let ref;
+  if (onde === "topo") {
+    ref = resto[0] || null;
+  } else if (onde === "fim") {
+    ref = null;
+  } else if (onde === "cima") {
+    const antes = todos.slice(0, todos.indexOf(bloco[0])).filter((n) => !bloco.includes(n)).pop();
+    if (!antes) return;
+    ref = antes;
+  } else {
+    const depois = todos.slice(todos.indexOf(bloco[bloco.length - 1]) + 1).find((n) => !bloco.includes(n));
+    if (!depois) return;
+    ref = depois.nextElementSibling;
+    while (ref && bloco.includes(ref)) ref = ref.nextElementSibling;
+  }
+  marcarArrastados(bloco);
+  bloco.forEach((c) => grelha.insertBefore(c, ref));
+  bloco[0].scrollIntoView({ block: "nearest" });
   aposMover();
 }
 
-// Põe o artigo logo a seguir a outro (escolhido no diálogo "A seguir a…").
-function moverDepois(card, referencia) {
-  if (card === referencia) return;
-  state.ordenar.arrastados.add(card.dataset.codigo);
-  referencia.after(card);
-  selecionar(card);
-  card.scrollIntoView({ block: "center" });
+// Põe o bloco logo a seguir a outro artigo (escolhido no diálogo "A seguir a…").
+function moverDepois(bloco, referencia) {
+  if (bloco.includes(referencia)) return;
+  marcarArrastados(bloco);
+  let r = referencia;
+  bloco.forEach((c) => { r.after(c); r = c; });
+  bloco[0].scrollIntoView({ block: "center" });
   aposMover();
 }
 
-let aMover = null;
+let aMover = [];
 function abrirMover(card) {
-  aMover = card;
-  el("mover-nome").textContent = card.querySelector(".nome").textContent;
+  aMover = blocoDe(card);
+  el("mover-nome").textContent = aMover.length === 1 ? card.querySelector(".nome").textContent : `${aMover.length} artigos selecionados`;
   el("lista-alvos").replaceChildren(...[...el("grelha").children]
-    .filter((n) => n !== card)
+    .filter((n) => !aMover.includes(n))
     .map((n) => new Option(`${n.dataset.codigo} — ${n.querySelector(".nome").textContent}`)));
   el("mover-alvo").value = "";
   el("mover-erro").hidden = true;
@@ -241,13 +322,13 @@ function abrirMover(card) {
 function encontrarAlvo(texto) {
   const t = texto.trim().toLowerCase();
   if (!t) return { erro: "Escreve o código ou o nome do artigo." };
-  const outros = [...el("grelha").children].filter((n) => n !== aMover);
+  const outros = [...el("grelha").children].filter((n) => !aMover.includes(n));
   const rotulo = (n) => `${n.dataset.codigo} — ${n.querySelector(".nome").textContent}`.toLowerCase();
   const exato = outros.find((n) => rotulo(n) === t || n.dataset.codigo.toLowerCase() === t);
   if (exato) return { alvo: exato };
   const parecidos = outros.filter((n) => rotulo(n).includes(t));
   if (parecidos.length === 1) return { alvo: parecidos[0] };
-  return { erro: parecidos.length === 0 ? "Não encontrei esse artigo nesta família." : `Há ${parecidos.length} artigos com esse texto. Escolhe um da lista.` };
+  return { erro: parecidos.length === 0 ? "Não encontrei esse artigo nesta lista." : `Há ${parecidos.length} artigos com esse texto. Escolhe um da lista.` };
 }
 
 el("form-mover").addEventListener("submit", (e) => {
@@ -262,14 +343,27 @@ el("form-mover").addEventListener("submit", (e) => {
 });
 el("mover-inicio").addEventListener("click", () => {
   el("dlg-mover").close();
-  mover(aMover, 0);
+  moverBloco(aMover, "topo");
 });
 el("mover-cancelar").addEventListener("click", () => el("dlg-mover").close());
 
-function selecionar(card) {
-  el("grelha").querySelectorAll(".artigo.selecionado").forEach((n) => n.classList.remove("selecionado"));
-  if (card) card.classList.add("selecionado");
+// Ordena por nome os artigos selecionados, nos lugares que já ocupam
+// (números e medidas pela ordem natural: "Vela 7 cm" antes de "Vela 20 cm").
+// Só muda o ecrã: a nova ordem aparece em pré-visualização até gravar.
+function ordenarSelecaoPorNome() {
+  const sel = selecionados();
+  if (sel.length < 2) return;
+  const todos = [...el("grelha").children];
+  const lugares = sel.map((c) => todos.indexOf(c));
+  const nome = (c) => c.querySelector(".nome").textContent;
+  const ordenados = [...sel].sort((a, b) => nome(a).localeCompare(nome(b), "pt", { numeric: true, sensitivity: "base" })
+    || a.dataset.codigo.localeCompare(b.dataset.codigo));
+  lugares.forEach((lugar, k) => { todos[lugar] = ordenados[k]; });
+  marcarArrastados(sel);
+  el("grelha").replaceChildren(...todos);
+  aposMover();
 }
+el("btn-ordenar-nome").addEventListener("click", ordenarSelecaoPorNome);
 
 el("grelha").addEventListener("click", (e) => {
   if (!state.ordenar) return;
@@ -277,27 +371,28 @@ el("grelha").addEventListener("click", (e) => {
   if (!card) return;
   const botao = e.target.closest("button[data-mover]");
   if (!botao) {
-    selecionar(card);
+    selecionar(card, e.ctrlKey || e.metaKey ? "alternar" : e.shiftKey ? "intervalo" : null);
     return;
   }
   if (botao.dataset.mover === "depois") {
     abrirMover(card);
     return;
   }
-  const i = [...el("grelha").children].indexOf(card);
-  const destinos = { topo: 0, cima: i - 1, baixo: i + 1, fim: Infinity };
-  mover(card, destinos[botao.dataset.mover]);
+  moverBloco(blocoDe(card), botao.dataset.mover);
 });
 
 document.addEventListener("keydown", (e) => {
   if (!state.ordenar || el("dlg-mover").open || el("dlg-codigo").open) return;
-  const card = el("grelha").querySelector(".artigo.selecionado");
-  if (!card) return;
-  const i = [...el("grelha").children].indexOf(card);
-  const destinos = { ArrowUp: i - 1, ArrowDown: i + 1, Home: 0, End: Infinity };
-  if (!(e.key in destinos)) return;
+  if (e.key === "Escape") {
+    selecionados().forEach((n) => n.classList.remove("selecionado"));
+    atualizarSelecao();
+    return;
+  }
+  const destinos = { ArrowUp: "cima", ArrowDown: "baixo", Home: "topo", End: "fim" };
+  const bloco = selecionados();
+  if (!(e.key in destinos) || bloco.length === 0) return;
   e.preventDefault();
-  mover(card, destinos[e.key]);
+  moverBloco(bloco, destinos[e.key]);
 });
 
 function pedidoOrdem() {
@@ -525,6 +620,7 @@ async function iniciar() {
     debounce = setTimeout(() => carregar(true), 250);
   });
   el("familia").addEventListener("change", () => carregar(true));
+  el("so-loja").addEventListener("change", () => carregar(true));
   el("mais").addEventListener("click", () => carregar(false));
 
   await carregar(true);

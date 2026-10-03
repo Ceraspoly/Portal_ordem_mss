@@ -66,6 +66,7 @@ main { padding: 20px; }
 }
 
 .artigo {
+  position: relative;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -75,6 +76,27 @@ main { padding: 20px; }
   align-items: center;
   text-align: center;
 }
+
+/* Número da posição na lista que está no ecrã (1, 2, 3…). */
+.posicao {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 22px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--text);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  z-index: 1;
+}
+.grelha.lista .posicao { position: static; flex: none; min-width: 36px; }
+
+.so-loja { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border: 1px solid var(--loja); border-radius: 6px; background: #fff; color: var(--loja); font-size: 14px; cursor: pointer; user-select: none; }
+.filtros .so-loja input { width: auto; height: auto; margin: 0; padding: 0; border: 0; flex: none; }
 
 /* Foto sempre 100x100, sem deformar (mesmo critério do portal de encomendas). */
 .foto { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }

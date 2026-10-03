@@ -179,25 +179,35 @@ app.MapGet("/api/config", (HttpContext ctx, IOptionsMonitor<PortalOptions> opts)
 app.MapGet("/api/familias", async (IArtigoProvider data, CancellationToken ct) =>
     Results.Ok(await data.GetFamiliasAsync(ct)));
 
-app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, bool? todos, IArtigoProvider data,
+app.MapGet("/api/artigos", async (string? q, string? familia, int? offset, bool? todos, bool? loja, IArtigoProvider data,
     IOptionsMonitor<PortalOptions> opts, CancellationToken ct) =>
 {
+    var texto = (q ?? string.Empty).Trim();
+    var fam = (familia ?? string.Empty).Trim();
+
     // todos=true: todos os artigos de uma vez (da família escolhida, ou do
     // catálogo inteiro), para o modo de ordenação. Com limite de segurança:
     // se houver mais, recusa em vez de devolver só uma parte.
-    if (todos == true)
+    // loja=true: só artigos de loja. A marca de loja só se sabe depois de
+    // ler os artigos, por isso lê-se tudo (com o mesmo limite) e filtra-se aqui.
+    if (todos == true || loja == true)
     {
-        var tudo = await data.SearchAsync(new PesquisaArtigos(string.Empty, (familia ?? string.Empty).Trim(), 0, MaxArtigosOrdenar + 1), ct);
-        return tudo.Count > MaxArtigosOrdenar
-            ? Results.BadRequest(new { error = $"São mais de {MaxArtigosOrdenar} artigos para ordenar de uma vez. Escolhe uma família." })
-            : Results.Ok(tudo);
+        var tudo = await data.SearchAsync(new PesquisaArtigos(todos == true ? string.Empty : texto, fam, 0, MaxArtigosOrdenar + 1), ct);
+        if (tudo.Count > MaxArtigosOrdenar)
+        {
+            return Results.BadRequest(new { error = $"São mais de {MaxArtigosOrdenar} artigos de uma vez. Escolhe uma família." });
+        }
+
+        IEnumerable<Artigo> lista = loja == true ? tudo.Where(a => a.Loja) : tudo;
+        if (todos != true)
+        {
+            lista = lista.Skip(Math.Max(0, offset ?? 0)).Take(opts.CurrentValue.PageSize);
+        }
+
+        return Results.Ok(lista.ToList());
     }
 
-    var pesquisa = new PesquisaArtigos(
-        (q ?? string.Empty).Trim(),
-        (familia ?? string.Empty).Trim(),
-        Math.Max(0, offset ?? 0),
-        opts.CurrentValue.PageSize);
+    var pesquisa = new PesquisaArtigos(texto, fam, Math.Max(0, offset ?? 0), opts.CurrentValue.PageSize);
     return Results.Ok(await data.SearchAsync(pesquisa, ct));
 });
 

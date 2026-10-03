@@ -15,6 +15,7 @@
       <select id="familia">
         <option value="">Todas as famílias</option>
       </select>
+      <label class="so-loja" title="Mostrar só os artigos com o visto no CDU Loja"><input id="so-loja" type="checkbox"> Só loja</label>
       <button id="btn-ordenar" class="btn" type="button" hidden>Ordenar</button>
       <button id="btn-historico" class="btn" type="button" hidden>Histórico</button>
     </div>
@@ -26,6 +27,7 @@
       <button type="button" class="btn" data-vista="quadrados">Quadrados</button>
       <button type="button" class="btn" data-vista="lista">Lista</button>
     </div>
+    <button id="btn-ordenar-nome" class="btn" type="button" disabled title="Ordena por nome os artigos selecionados (Ctrl+clique), nos lugares que já ocupam">Ordenar seleção por nome</button>
     <button id="btn-cancelar" class="btn" type="button">Cancelar</button>
     <button id="btn-guardar" class="btn btn-principal" type="button" disabled>Guardar ordem</button>
   </div>
@@ -38,6 +40,7 @@
 
   <template id="tpl-artigo">
     <article class="artigo">
+      <span class="posicao"></span>
       <div class="foto"><img alt="" loading="lazy" width="100" height="100"></div>
       <h2 class="nome"></h2>
       <p class="familia"></p>
